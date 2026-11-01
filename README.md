@@ -2,7 +2,7 @@
 
 <img src="icon.png" width="88" alt="Voice2Text">
 
-Utilitar Windows de dictare vocală în română și engleză, cu transcriere locală prin faster-whisper. Panoul compact are două rânduri, butoane cu imagini transparente, indicator audio de 96 px și un meniu cu informații suplimentare.
+Utilitar Windows de dictare vocală în română și engleză, cu transcriere locală Whisper pe placa video sau pe procesor. Panoul compact are două rânduri, butoane cu imagini transparente, indicator audio de 96 px și un meniu cu informații suplimentare.
 
 ## Utilizare
 
@@ -17,6 +17,8 @@ Panoul poate fi mutat prin tragere din orice zonă, inclusiv de pe butoane și p
 
 În celelalte aplicații, textul folosește o lipire protejată când clipboardul poate fi restaurat. Dacă ai copiat o captură de ecran sau fișiere, introducerea Unicode păstrează clipboardul intact. Suportul depinde de aplicația țintă; ferestrele cu privilegii mai mari pot bloca introducerea. Erorile oferă transcrierea pentru recuperare manuală.
 
+Panoul devine violet deschis când dictarea nu merge într-o fereastră Claude (Claude Code în terminal sau aplicația Claude). Textul este trimis și acolo, dar o lipire într-o fereastră fără câmp de text se pierde fără nicio eroare, așa că verifică destinația în meniul **⌄**, pe rândul **Trimit în**. Ultimele 10 transcrieri rămân în același meniu până închizi aplicația; un click deschide textul, cu buton de copiere. Ele stau doar în memorie, nu pe disc.
+
 Ieși normal din meniul tray pentru eliberarea resurselor. `Stop-Voice2Text.bat` este o oprire forțată pentru instanțele din acest folder.
 
 ## Totul în folderul proiectului
@@ -26,6 +28,8 @@ Ieși normal din meniul tray pentru eliberarea resurselor. `Stop-Voice2Text.bat`
 | `Voice2Text.exe` | Aplicația compilată, în rădăcina proiectului |
 | `_internal/` | Bibliotecile și resursele necesare executabilului |
 | `models/` | Cacheul local pentru modelele Whisper |
+| `gpu/` | Motorul Vulkan, din `Build-GPU-Engine.bat` |
+| `cuda/` | Bibliotecile NVIDIA opționale, din `Install-CUDA-Libs.ps1` |
 | `config.json` | Setările personale, lângă executabil/surse |
 | `logs/voice2text.log` | Jurnal rotativ cu metadate și erori |
 
@@ -33,7 +37,25 @@ Setările listează doar microfoanele care acceptă captura la 16 kHz. Panoul se
 
 Sursele și executabilul folosesc același `models/`, calculat relativ la locația aplicației, fără o cale fixă spre un anumit disc. Prima utilizare a unui model necesită internet. Modelele deja descărcate pot fi folosite offline. Înregistrările și transcrierile nu sunt salvate intenționat în jurnal.
 
-Pentru portabilitate, păstrează executabilul împreună cu `_internal/` și `models/`. Folderul trebuie să permită scrierea. Modelele, configurația, jurnalele și binarele generate sunt excluse din Git.
+Pentru portabilitate, păstrează executabilul împreună cu `_internal/`, `models/` și `gpu/`. Folderul trebuie să permită scrierea. Modelele, configurația, jurnalele și binarele generate sunt excluse din Git.
+
+## Placă video
+
+Setarea **Procesare** alege între **GPU** și **CPU**, iar **Model Whisper** rămâne separat. Pe GPU, ordinea este: CUDA pe plăci NVIDIA cu biblioteci instalate, apoi Vulkan pe orice placă modernă (AMD, NVIDIA, Intel), apoi CPU. Dacă GPU-ul eșuează la încărcare, aplicația continuă pe CPU și notează motivul în jurnal. Meniul **⌄** arată unde rulează modelul.
+
+Vulkan folosește `gpu/voice2text_whisper.dll` și modele comprimate în `models/ggml/`, descărcate la prima utilizare: `medium-q5_0` are 514 MB. `Build-GPU-Engine.bat` compilează DLL-ul (necesită Visual Studio Build Tools); păstrează `gpu/` lângă executabil.
+
+Pentru CUDA, rulează o dată `.\Install-CUDA-Libs.ps1` (circa 1,3 GB), apoi repornește aplicația. Această cale nu a fost rulată încă pe o placă NVIDIA reală.
+
+Timpi măsurați pe RX 6800 XT și Ryzen 9 5950X, cu modelul `medium`, pentru o frază de 4 s:
+
+| Procesare | Timp |
+| --- | --- |
+| CPU, 4 fire | 7,6 s |
+| CPU, 8 fire (setarea actuală) | 6,1 s |
+| GPU Vulkan, `medium-q5_0` | 1,4 s |
+
+Modelul ocupă circa 870 MB de memorie video cât timp aplicația este deschisă. Pornește aplicația înainte de a încărca modele mari în LM Studio: comportamentul cu memoria video plină nu a fost testat.
 
 ## Dezvoltare și build
 

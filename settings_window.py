@@ -43,7 +43,7 @@ class SettingsWindow(ctk.CTkToplevel):
         self.models_map = {
             "small (Recomandat - Precizie mare)": "small",
             "base (Rapid - PC-uri mai vechi)": "base",
-            "medium (Acuratețe maximă - Necesită CPU bun)": "medium",
+            "medium (Acuratețe maximă - Recomandat cu GPU)": "medium",
             "tiny (Ultra-rapid)": "tiny"
         }
         model_display = [k for k, v in self.models_map.items() if v == self.config.get("model_size", "small")]
@@ -52,6 +52,21 @@ class SettingsWindow(ctk.CTkToplevel):
         self.cb_model = ctk.CTkComboBox(content, values=list(self.models_map.keys()), width=400, state="readonly")
         self.cb_model.set(cur_model_str)
         self.cb_model.pack(fill="x", padx=pad_x, pady=(0, 10))
+
+        # Procesare
+        lbl_device = ctk.CTkLabel(content, text="Procesare:", anchor="w")
+        lbl_device.pack(fill="x", padx=pad_x, pady=(5, 2))
+
+        self.compute_map = {
+            "GPU (placă video, CPU dacă nu merge)": "gpu",
+            "CPU": "cpu"
+        }
+        compute_display = [k for k, v in self.compute_map.items() if v == self.config.get("compute_device", "gpu")]
+        cur_compute_str = compute_display[0] if compute_display else list(self.compute_map.keys())[0]
+
+        self.cb_compute = ctk.CTkComboBox(content, values=list(self.compute_map.keys()), width=400, state="readonly")
+        self.cb_compute.set(cur_compute_str)
+        self.cb_compute.pack(fill="x", padx=pad_x, pady=(0, 10))
 
         # Limba
         lbl_lang = ctk.CTkLabel(content, text="Limba de dictare:", anchor="w")
@@ -135,6 +150,7 @@ class SettingsWindow(ctk.CTkToplevel):
 
     def _save(self):
         new_model = self.models_map.get(self.cb_model.get(), "small")
+        new_compute = self.compute_map.get(self.cb_compute.get(), "gpu")
         new_lang = self.lang_map.get(self.cb_lang.get(), "ro")
         new_mic = self.dev_map.get(self.cb_mic.get(), None)
         new_hotkey = self.entry_hotkey.get().strip().lower() or "f9"
@@ -143,7 +159,7 @@ class SettingsWindow(ctk.CTkToplevel):
         new_enter = self.var_enter.get()
 
         new_config = self.config.copy()
-        new_config.update(model_size=new_model, language=new_lang, device_index=new_mic,
+        new_config.update(model_size=new_model, compute_device=new_compute, language=new_lang, device_index=new_mic,
                           hotkey=new_hotkey, floating_visible=new_floating,
                           add_trailing_space=new_space, auto_enter=new_enter)
         try:

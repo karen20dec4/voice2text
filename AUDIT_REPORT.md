@@ -134,3 +134,36 @@ Butonul **Dictează** are un fundal roșu deschis și text închis cât timp în
 **Verificări.** **68 de teste trecute**; 13 teste noi sau modificate eșuează pe codul vechi. Clipboardul nativ izolat a trecut, iar buildul a fost regenerat. Injectorul real a inserat textul cu diacritice în Claude Code v2.1.316 pornit într-o consolă clasică, citit apoi din bufferul consolei, fără Enter. A doua lansare reală a `Voice2Text.exe` a afișat panoul ascuns, fără înregistrare.
 
 **Limite.** Nu a fost verificat ciclul complet F9, microfon, inserare în Claude CLI. Enter automat în Claude CLI nu a fost verificat, ca să nu se trimită mesaje. Windows Terminal, ConEmu și mintty sunt incluse după clasa ferestrei, fără test pe aceste sisteme. Schimbarea ferestrei în timpul transcrierii poate anula inserarea și deschide fereastra de recuperare. Într-un terminal cu file, textul merge în fila activă în acel moment. Pe un sistem cu UAC activ, aplicația neelevată nu poate insera într-un terminal Administrator, iar eșecul nu poate fi detectat.
+
+
+## GPU Vulkan, CUDA și texte recuperabile
+
+**Trigger.** Placa RX 6800 XT este AMD, iar `faster-whisper` accelerează doar pe CUDA, deci aplicația rula numai pe procesor: o frază de 4 s dura 7,6 s cu `medium`. Separat, textul dictat se pierdea fără eroare când fereastra țintă nu avea un câmp de text activ.
+
+**Modificări.**
+
+- Setarea **Procesare** alege GPU sau CPU, independent de model. Ordinea pe GPU: CUDA, Vulkan, CPU, cu revenire automată și motiv în jurnal.
+- `native/voice2text_whisper.cpp` expune o interfață C mică peste whisper.cpp v1.9.5, compilată de `Build-GPU-Engine.bat` în `gpu/voice2text_whisper.dll`. `gpu_engine.py` o apelează prin ctypes, iar `whisper_full_params` nu ajunge niciodată în Python.
+- Modelele Vulkan sunt comprimate și stau în `models/ggml/`: `medium-q5_0` (514 MB) și `q5_1` pentru celelalte mărimi.
+- Filtrul Silero din Python rămâne și pe GPU: filtrul propriu din whisper.cpp a pierdut fragmentul „însă numai dacă programul știe”, iar fără el fragmentul rămânea.
+- O rulare de încălzire la încărcare compilează shaderele, ca prima dictare să nu plătească acest cost.
+- CUDA verifică DLL-urile înainte de inferență, fiindcă lipsa cuDNN poate închide procesul peste orice `except`. `Install-CUDA-Libs.ps1` le descarcă în `cuda/`.
+- Procesorul folosește 8 fire pe 5950X: 8 au fost mai rapide decât 4 și decât 16.
+- Panoul devine violet deschis când ținta nu este Claude. Titlul consolei Claude Code nu conține „Claude”, deci identificarea urmează arborele de procese, de la proprietarul ferestrei până la `claude.exe`.
+- Ultimele 10 transcrieri rămân în meniul **⌄**, doar în memorie. Rândul **Trimit în** arată destinația.
+
+**Măsurători.** `medium`, cu voci sintetice Edge TTS și 476 de cuvinte de referință:
+
+| Configurație | 4 s | 13 s | 25 s | 48 s | WER |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| CPU, 4 fire | 7,61 s | 11,44 s | 19,67 s | 36,40 s | 8,6% |
+| CPU, 8 fire | 6,06 s | 9,84 s | 17,64 s | 32,45 s | 8,6% |
+| CPU, 16 fire | 6,33 s | 10,76 s | 20,02 s | 36,45 s | 8,6% |
+| Vulkan, `medium` | 1,86 s | 3,18 s | 5,28 s | 9,18 s | 10,5% |
+| Vulkan, `medium-q5_0` | 1,43 s | 2,68 s | 4,57 s | 8,14 s | 5,0% |
+
+Diferențele de WER vin mai ales dintr-un singur clip, unde diacriticele dispar întâmplător, deci nu arată că `q5_0` este mai precis. O dictare reală de 15,21 s prin executabil a durat 1,44 s.
+
+**Verificări.** 106 teste trecute, verificarea nativă a clipboardului trecută. Executabilul a încărcat `medium` pe Vulkan pe RX 6800 XT. Detectarea Claude a fost verificată pe ferestrele reale deschise, iar culorile panoului pe ecran.
+
+**Limite.** CUDA nu a rulat pe o placă NVIDIA reală, iar `Install-CUDA-Libs.ps1` a fost încercat doar cu arhive de probă. Comportamentul cu memoria video plină nu este testat. O lipire pierdută într-o fereastră fără câmp de text nu poate fi detectată; textul se recuperează din **⌄**. Aplicația desktop Claude a fost verificată doar prin teste cu simulări.

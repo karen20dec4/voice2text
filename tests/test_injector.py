@@ -1,3 +1,4 @@
+import os
 import threading
 import ctypes
 import unittest
@@ -7,6 +8,49 @@ import pywintypes
 
 from clipboard_fakes import FakeClipboard, isolate_clipboard
 import injector
+
+
+class ClaudeWindowTests(unittest.TestCase):
+    # Window owner is process 10; explorer (1) started its shell, which started Claude.
+    CONSOLE_WITH_CLAUDE = {1: (0, "explorer.exe"), 10: (1, "pwsh.exe"), 11: (10, "claude.exe")}
+
+    def check(self, processes, window_class="ConsoleWindowClass"):
+        with patch("injector._process_table", return_value=processes), patch(
+                "injector.win32process.GetWindowThreadProcessId", return_value=(0, 10)), patch(
+                "injector.win32gui.GetClassName", return_value=window_class):
+            return injector.WindowInjector._hosts_claude(123)
+
+    def test_console_running_claude_code(self):
+        self.assertTrue(self.check(self.CONSOLE_WITH_CLAUDE))
+
+    def test_claude_desktop_application(self):
+        self.assertTrue(self.check({10: (1, "claude.exe")}, "Chrome_WidgetWin_1"))
+
+    def test_plain_console_is_not_claude(self):
+        self.assertFalse(self.check({10: (1, "pwsh.exe"), 20: (1, "pwsh.exe"), 21: (20, "claude.exe")}))
+
+    def test_browser_that_launched_claude_is_not_claude(self):
+        self.assertFalse(self.check(self.CONSOLE_WITH_CLAUDE, "MozillaWindowClass"))
+
+    def test_process_loop_ends(self):
+        self.assertFalse(self.check({10: (1, "pwsh.exe"), 30: (31, "claude.exe"), 31: (30, "x.exe")}))
+
+    def test_unreadable_processes_read_as_not_claude(self):
+        with patch("injector._process_table", side_effect=OSError("denied")), patch(
+                "injector.win32process.GetWindowThreadProcessId", return_value=(0, 10)):
+            self.assertFalse(injector.WindowInjector._hosts_claude(123))
+
+    def test_answer_is_cached_for_the_same_window(self):
+        with patch("injector.threading.Thread"):
+            typer = injector.WindowInjector()
+        with patch.object(injector.WindowInjector, "_hosts_claude", return_value=True) as hosts:
+            self.assertTrue(typer.is_claude_window(5))
+            self.assertTrue(typer.is_claude_window(5))
+            typer.is_claude_window(6)
+        self.assertEqual(hosts.call_count, 2)
+
+    def test_real_process_table_contains_this_process(self):
+        self.assertTrue(injector._process_table()[os.getpid()][1].endswith(".exe"))
 
 
 class InjectorTests(unittest.TestCase):

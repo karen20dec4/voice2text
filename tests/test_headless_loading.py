@@ -28,7 +28,7 @@ def model_factory(*args, **kwargs):
         progress.update(1)
     return object()
 with patch("transcriber.WhisperModel", side_effect=model_factory):
-    transcriber = WhisperTranscriber("medium")
+    transcriber = WhisperTranscriber("medium", compute_device="cpu")
     for _ in range(60):
         if transcriber.is_ready() or not transcriber._loading:
             break

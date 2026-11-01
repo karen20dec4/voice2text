@@ -1,3 +1,4 @@
+from collections import deque
 import importlib.machinery
 import importlib.util
 from pathlib import Path
@@ -25,6 +26,62 @@ class AppTests(unittest.TestCase):
         self.app.is_processing = False
         self.app.current_hotkey = None
         self.app.config = {"hotkey": "f9"}
+        self.app.recent_texts = deque(maxlen=app_module.RECENT_TEXTS)
+        self.app._outside_claude = False
+        self.app._recording_target = None
+        self.app.pill_frame = Mock()
+        self.app.injector = Mock()
+
+    def panel_color(self):
+        return self.app.pill_frame.configure.call_args.kwargs["fg_color"]
+
+    def test_panel_turns_violet_outside_claude_and_back(self):
+        self.app.injector.last_target_hwnd = 5
+        self.app.injector.is_claude_window.return_value = False
+        self.app._refresh_panel_color()
+        self.assertEqual(self.panel_color(), app_module.PANEL_COLORS[True][0])
+        self.app.injector.is_claude_window.return_value = True
+        self.app._refresh_panel_color()
+        self.assertEqual(self.panel_color(), app_module.PANEL_COLORS[False][0])
+
+    def test_unchanged_target_does_not_redraw_the_panel(self):
+        self.app.injector.last_target_hwnd = 5
+        self.app.injector.is_claude_window.return_value = True
+        self.app._refresh_panel_color()
+        self.app.pill_frame.configure.assert_not_called()
+
+    def test_no_target_keeps_the_normal_panel(self):
+        self.app.injector.last_target_hwnd = None
+        self.app._refresh_panel_color()
+        self.app.pill_frame.configure.assert_not_called()
+
+    def test_running_dictation_shows_its_own_target(self):
+        self.app.is_recording = True
+        self.app._recording_target = 7
+        self.app.injector.last_target_hwnd = 8
+        self.app.injector.is_claude_window.side_effect = lambda hwnd: hwnd == 7
+        self.app._refresh_panel_color()
+        self.app.pill_frame.configure.assert_not_called()
+
+    def test_text_sent_outside_claude_stays_recoverable(self):
+        self.app._outside_claude = True
+        self.app._recording_target = 5
+        self.app.injector.target_name.return_value = "firefox"
+        self.app._finish_processing("Salut", None)
+        self.assertEqual(list(self.app.recent_texts), ["Salut"])
+        self.assertIn("firefox", self.app.audio_meter.set_message.call_args.args[0])
+
+    def test_recent_texts_keep_newest_first_and_are_bounded(self):
+        for index in range(app_module.RECENT_TEXTS + 2):
+            self.app._finish_processing(f"text {index}", None)
+        self.assertEqual(len(self.app.recent_texts), app_module.RECENT_TEXTS)
+        self.assertEqual(self.app.recent_texts[0], f"text {app_module.RECENT_TEXTS + 1}")
+
+    def test_empty_transcription_is_not_kept(self):
+        self.app.recorder = Mock()
+        self.app.recorder.get_status.return_value = Mock(samples=0)
+        self.app._finish_processing("", None)
+        self.assertEqual(len(self.app.recent_texts), 0)
 
     def test_background_status_never_calls_tk(self):
         thread = threading.Thread(target=self.app._on_whisper_status, args=("Gata de dictare",))
@@ -240,7 +297,12 @@ class GuiSmokeTests(unittest.TestCase):
                 with patch("tkinter.Menu.tk_popup"):
                     app._show_info_dropdown()
                 self.assertTrue(app._info_menu.winfo_exists())
-                self.assertEqual(app._info_menu.index("end"), 2)
+                self.assertEqual(app._info_menu.index("end"), 3)
+                app.recent_texts.append("Salut")
+                with patch("tkinter.Menu.tk_popup"):
+                    app._show_info_dropdown()
+                self.assertEqual(app._info_menu.index("end"), 5)
+                app.recent_texts.clear()
                 self.assertEqual((app.root.winfo_reqwidth(), app.root.winfo_reqheight()), before)
                 # Generate Tk events only, on an invisible test window. No OS
                 # mouse input, microphone capture, or external actions occur.

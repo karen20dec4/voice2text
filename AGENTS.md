@@ -5,7 +5,8 @@
 Voice2Text is a Windows desktop dictation utility using CustomTkinter and faster-whisper. Source modules live at the repository root:
 
 - `Voice2Text.pyw`: application lifecycle, floating controls, tray menu, and UI dispatch.
-- `audio_recorder.py`, `transcriber.py`: capture and CPU transcription.
+- `audio_recorder.py`, `transcriber.py`: capture and transcription (CUDA, then Vulkan, then CPU).
+- `gpu_engine.py`, `native/`, `build_gpu_engine.py`: Vulkan transcription through a small DLL over whisper.cpp.
 - `audio_meter.py`, `ui_controls.py`: compact audio display and image buttons.
 - `injector.py`, `clipboard_guard.py`: target tracking and protected insertion. Terminals always get direct Unicode input, because a raw-mode CLI on a classic console receives `Ctrl+V` as byte `0x16`.
 - `settings_window.py`, `config.py`: settings, validation, and portable paths.
@@ -25,6 +26,7 @@ Use Windows PowerShell and Python 3.13, the verified interpreter version.
 - `python -m unittest discover -s tests -v`: run regression and hidden GUI tests.
 - `python tests/native_clipboard_check.py`: verify native clipboard preservation on a private window station.
 - `.\Build-Portable-EXE.bat`: build `Voice2Text.exe` and `_internal/` at the root.
+- `.\Build-GPU-Engine.bat`: build `gpu/voice2text_whisper.dll`; needs Visual Studio Build Tools and Git.
 - `.\Create-Desktop-Shortcut.ps1`: create the Desktop link with the project icon.
 
 ## Coding Style & Naming Conventions

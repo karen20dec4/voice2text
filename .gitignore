@@ -7,6 +7,8 @@ dist/
 config.json
 *.log
 models/
+cuda/
+gpu/
 logs/
 _internal/
 *.exe

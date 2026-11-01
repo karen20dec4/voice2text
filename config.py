@@ -7,6 +7,7 @@ import tempfile
 
 DEFAULT_CONFIG = {
     "model_size": "small",         # "tiny", "base", "small", "medium"
+    "compute_device": "gpu",       # "gpu" = CUDA or Vulkan when usable, else CPU; "cpu"
     "language": "ro",              # "ro", "en", "auto"
     "hotkey": "f9",                # e.g., "f9", "ctrl+alt+space", "alt+d"
     "device_index": None,          # None = default mic
@@ -32,12 +33,22 @@ def get_models_path():
     return os.path.join(get_app_dir(), "models")
 
 
+def get_cuda_path():
+    return os.path.join(get_app_dir(), "cuda")
+
+
+def get_gpu_path():
+    return os.path.join(get_app_dir(), "gpu")
+
+
 CONFIG_FILE = get_config_path()
 
 
 def _valid_value(key, value):
     if key == "model_size":
         return value in ("tiny", "base", "small", "medium")
+    if key == "compute_device":
+        return value in ("gpu", "cpu")
     if key == "language":
         return value in ("ro", "en", "auto")
     if key == "hotkey":

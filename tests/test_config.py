@@ -27,6 +27,10 @@ class ConfigTests(unittest.TestCase):
         self.assertIs(loaded["auto_enter"], False)
         self.assertIsNone(loaded["device_index"])
 
+    def test_unknown_compute_device_falls_back_to_gpu(self):
+        self.path.write_text(json.dumps({"compute_device": "tpu"}), encoding="utf-8")
+        self.assertEqual(config.load_config()["compute_device"], "gpu")
+
     def test_non_object_json_uses_defaults(self):
         self.path.write_text('[1, 2]', encoding="utf-8")
         with self.assertLogs(level="WARNING"):

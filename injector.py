@@ -37,6 +37,26 @@ class INPUT(ctypes.Structure):
     _fields_ = [("type", wintypes.DWORD), ("data", INPUTUNION)]
 
 
+class PROCESSENTRY32W(ctypes.Structure):
+    _fields_ = [("dwSize", wintypes.DWORD), ("cntUsage", wintypes.DWORD),
+                ("th32ProcessID", wintypes.DWORD), ("th32DefaultHeapID", ctypes.c_size_t),
+                ("th32ModuleID", wintypes.DWORD), ("cntThreads", wintypes.DWORD),
+                ("th32ParentProcessID", wintypes.DWORD), ("pcPriClassBase", wintypes.LONG),
+                ("dwFlags", wintypes.DWORD), ("szExeFile", wintypes.WCHAR * 260)]
+
+
+kernel32 = ctypes.WinDLL("kernel32")
+kernel32.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
+kernel32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+kernel32.Process32FirstW.argtypes = [wintypes.HANDLE, ctypes.POINTER(PROCESSENTRY32W)]
+kernel32.Process32FirstW.restype = wintypes.BOOL
+kernel32.Process32NextW.argtypes = [wintypes.HANDLE, ctypes.POINTER(PROCESSENTRY32W)]
+kernel32.Process32NextW.restype = wintypes.BOOL
+kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+kernel32.CloseHandle.restype = wintypes.BOOL
+TH32CS_SNAPPROCESS = 2
+INVALID_HANDLE_VALUE = wintypes.HANDLE(-1).value
+
 user32 = ctypes.windll.user32
 user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
 user32.ShowWindow.restype = wintypes.BOOL
@@ -56,11 +76,31 @@ TERMINAL_WINDOW_CLASSES = frozenset({
     "VirtualConsoleClass",
     "mintty",
 })
+CLAUDE_PROCESS = "claude.exe"
+CLAUDE_CHECK_SECONDS = 1.0
+
+
+def _process_table():
+    """Return {process id: (parent id, lowercase executable name)}."""
+    snapshot = kernel32.CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)
+    if snapshot == INVALID_HANDLE_VALUE:
+        raise ctypes.WinError()
+    try:
+        processes = {}
+        entry = PROCESSENTRY32W(dwSize=ctypes.sizeof(PROCESSENTRY32W))
+        found = kernel32.Process32FirstW(snapshot, ctypes.byref(entry))
+        while found:
+            processes[entry.th32ProcessID] = (entry.th32ParentProcessID, entry.szExeFile.lower())
+            found = kernel32.Process32NextW(snapshot, ctypes.byref(entry))
+        return processes
+    finally:
+        kernel32.CloseHandle(snapshot)
 
 
 class WindowInjector:
     def __init__(self):
         self.last_target_hwnd = None
+        self._claude_check = (None, 0.0, False)
         self._target_lock = threading.Lock()
         self._injection_lock = threading.Lock()
         self._stopped = threading.Event()
@@ -81,6 +121,46 @@ class WindowInjector:
         except Exception:
             logging.debug("Nu pot identifica tipul ferestrei", exc_info=True)
             return False
+
+    @classmethod
+    def _hosts_claude(cls, hwnd):
+        # The title of a Claude Code console names the session, not Claude, so
+        # only the process tree identifies it. Any failure reads as "not Claude".
+        try:
+            _, owner = win32process.GetWindowThreadProcessId(hwnd)
+            processes = _process_table()
+        except Exception:
+            logging.debug("Nu pot citi procesele", exc_info=True)
+            return False
+        if processes.get(owner, (0, ""))[1] == CLAUDE_PROCESS:
+            return True
+        if not cls._is_terminal(hwnd):
+            return False
+        for parent, name in processes.values():
+            seen = set()
+            while name == CLAUDE_PROCESS and parent and parent not in seen:
+                if parent == owner:
+                    return True
+                seen.add(parent)
+                parent = processes.get(parent, (0, ""))[0]
+        return False
+
+    def is_claude_window(self, hwnd):
+        checked_hwnd, checked_at, result = self._claude_check
+        now = time.monotonic()
+        if hwnd != checked_hwnd or now - checked_at >= CLAUDE_CHECK_SECONDS:
+            result = self._hosts_claude(hwnd)
+            self._claude_check = (hwnd, now, result)
+        return result
+
+    @staticmethod
+    def target_name(hwnd):
+        try:
+            _, owner = win32process.GetWindowThreadProcessId(hwnd)
+            return _process_table().get(owner, (0, ""))[1].removesuffix(".exe")
+        except Exception:
+            logging.debug("Nu pot identifica aplicația", exc_info=True)
+            return ""
 
     def get_target_window(self):
         # Capture at dictation start; the tracker may change during inference.

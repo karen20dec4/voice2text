@@ -2,6 +2,7 @@ import os
 import sys
 import threading
 import logging
+from collections import deque
 from logging.handlers import RotatingFileHandler
 import queue
 import time
@@ -26,6 +27,9 @@ from settings_window import SettingsWindow
 
 SHOW_WINDOW_EVENT = "Local\\Voice2Text.Show"
 DEFAULT_WINDOW_POSITION = (120, 120)
+RECENT_TEXTS = 10
+PANEL_COLORS = {False: ("#141b22", "#2a3540"),  # Text goes to Claude.
+                True: ("#b9a3f5", "#dacffb")}  # Light violet: text goes elsewhere.
 
 
 class Voice2TextApp:
@@ -47,6 +51,10 @@ class Voice2TextApp:
         self._recording_target = None
         self._session_config = None
         self.last_transcription = ""
+        # A paste into a window without a text field fails silently. Kept in
+        # memory only: transcriptions are never written to disk.
+        self.recent_texts = deque(maxlen=RECENT_TEXTS)
+        self._outside_claude = False
         self._meter_after_id = None
         self._processing_started_at = 0.0
         self._processing_stage = "Transcriu"
@@ -77,7 +85,8 @@ class Voice2TextApp:
         self.recorder = AudioRecorder()
         self.transcriber = WhisperTranscriber(
             model_size=self.config.get("model_size", "small"),
-            status_callback=self._on_whisper_status
+            status_callback=self._on_whisper_status,
+            compute_device=self.config.get("compute_device", "gpu")
         )
         self.injector = WindowInjector()
 
@@ -188,16 +197,29 @@ class Voice2TextApp:
         status = self.audio_meter.latest_status
         model = self.transcriber.model_size or self.config.get("model_size", "small")
         language = {"ro": "Română", "en": "Engleză", "auto": "Auto"}.get(self.config.get("language"), "Română")
+        device = {"cuda": "GPU CUDA", "vulkan": "GPU Vulkan"}.get(self.transcriber.device, "CPU")
+        target = self._current_target()
+        if not target:
+            destination = "nicio fereastră"
+        elif self.injector.is_claude_window(target):
+            destination = "Claude"
+        else:
+            destination = self.injector.target_name(target) or "altă aplicație"
         menu = tk.Menu(self.root, tearoff=0, bg="#242428", fg="#f5f5f7",
                        disabledforeground="#dddde4", borderwidth=1, font=("Segoe UI", 10))
         self._info_menu = menu
         lines = [
             f"Microfon: {status.device_name}",
-            f"Whisper {model} · {language} · {self.config.get('hotkey', 'f9').upper()}",
+            f"Whisper {model} · {device} · {language} · {self.config.get('hotkey', 'f9').upper()}",
+            f"Trimit în: {destination}",
             self.audio_meter.message,
         ]
         for line in lines:
             menu.add_command(label=line[:160], state="disabled")
+        if self.recent_texts:
+            menu.add_separator()
+            for text in self.recent_texts:
+                menu.add_command(label=f"📋 {text[:60]}", command=lambda text=text: self._show_saved_text(text))
         try:
             menu.tk_popup(self.btn_info.winfo_rootx(), self.btn_info.winfo_rooty() + self.btn_info.winfo_height() + 4)
         finally:
@@ -288,10 +310,25 @@ class Voice2TextApp:
         if self._closing.is_set():
             return
         self.audio_meter.update_audio(self.recorder.get_status(), self.is_recording)
+        self._refresh_panel_color()
         if self.is_processing:
             elapsed = time.monotonic() - self._processing_started_at
             self.audio_meter.set_message(f"{self._processing_stage}… {elapsed:.0f} s", "#f9e2af")
         self._meter_after_id = self.root.after(50, self._refresh_audio_meter)
+
+    def _current_target(self):
+        # A running dictation goes to the window captured when it started.
+        if self.is_recording or self.is_processing:
+            return self._recording_target
+        return self.injector.last_target_hwnd
+
+    def _refresh_panel_color(self):
+        target = self._current_target()
+        outside = bool(target) and not self.injector.is_claude_window(target)
+        if outside != self._outside_claude:
+            self._outside_claude = outside
+            fill, border = PANEL_COLORS[outside]
+            self.pill_frame.configure(fg_color=fill, border_color=border)
 
     def _set_processing_stage(self, stage):
         if self.is_processing:
@@ -423,6 +460,8 @@ class Voice2TextApp:
     def _finish_processing(self, text, error):
         self.is_processing = False
         self.last_transcription = text
+        if text:
+            self.recent_texts.appendleft(text)
         if error:
             self.audio_meter.set_message(f"Eroare: {error}", "#f38ba8")
             self.btn_dictate.configure(text="Eroare", fg_color="#f38ba8", text_color="#11111b")
@@ -430,6 +469,12 @@ class Voice2TextApp:
                 self._show_uninserted_text(text, error)
             else:
                 messagebox.showerror("Eroare dictare", error, parent=self.root)
+        elif text and self._outside_claude:
+            # Only the target application knows whether a text field took the paste.
+            name = self.injector.target_name(self._recording_target) or "altă aplicație"
+            self.btn_dictate.configure(text="✓ Trimis", fg_color="#a6e3a1", text_color="#11111b")
+            self.audio_meter.set_message(f"Trimis în {name} • textul rămâne în ⌄", "#a6e3a1",
+                                         summary="Trimis • vezi ⌄")
         elif text:
             self.btn_dictate.configure(text="✓ Inserat!", fg_color="#a6e3a1", text_color="#11111b")
             self.audio_meter.set_message("Text inserat • gata pentru următoarea dictare", "#a6e3a1")
@@ -446,11 +491,17 @@ class Voice2TextApp:
         self.root.after(1200, self._reset_button)
 
     def _show_uninserted_text(self, text, error):
+        self._show_text_window("Text ne-inserat - Voice2Text", f"Inserarea a eșuat: {error}", text)
+
+    def _show_saved_text(self, text):
+        self._show_text_window("Text dictat - Voice2Text", "Textul rămâne în ⌄ până închizi aplicația.", text)
+
+    def _show_text_window(self, title, message, text):
         window = ctk.CTkToplevel(self.root)
-        window.title("Text ne-inserat - Voice2Text")
+        window.title(title)
         window.geometry("560x360")
         window.attributes("-topmost", True)
-        ctk.CTkLabel(window, text=f"Inserarea a eșuat: {error}", wraplength=520).pack(padx=20, pady=15)
+        ctk.CTkLabel(window, text=message, wraplength=520).pack(padx=20, pady=15)
         textbox = ctk.CTkTextbox(window, wrap="word")
         textbox.pack(fill="both", expand=True, padx=20)
         textbox.insert("1.0", text)
@@ -492,7 +543,7 @@ class Voice2TextApp:
 
         # Update model if changed
         desired_model = self.config.get("model_size", "small")
-        self.transcriber.load_model_async(desired_model)
+        self.transcriber.load_model_async(desired_model, self.config.get("compute_device", "gpu"))
 
         # Floating window visibility
         if self.config.get("floating_visible", True):

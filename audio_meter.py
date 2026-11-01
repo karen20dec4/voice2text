@@ -10,7 +10,8 @@ from audio_recorder import AudioStatus
 class AudioMeter(ctk.CTkFrame):
     """Compact activity indicator; full diagnostics are available in the dropdown."""
     def __init__(self, parent, hotkey="F9"):
-        super().__init__(parent, fg_color="transparent", height=18)
+        # A fixed dark strip keeps the status colors readable on any panel color.
+        super().__init__(parent, fg_color="#141b22", height=18)
         self.hotkey = hotkey
         self.latest_status = AudioStatus()
         self.message = f"{hotkey}: pornește / oprește dictarea"

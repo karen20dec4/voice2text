@@ -67,7 +67,7 @@ class ImageButton(ctk.CTkButton):
         self._skin_image = self._make_image()
         super().__init__(master, text="", image=self._skin_image, width=width, height=28,
                          corner_radius=0, border_width=0, border_spacing=0,
-                         fg_color="transparent", hover_color="#141b22", command=command)
+                         fg_color="transparent", hover=False, command=command)
 
     def _make_image(self):
         image = _button_image(self.skin_width, self.skin_height, self.icon, self.label_text,
