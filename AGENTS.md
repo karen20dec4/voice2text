@@ -7,7 +7,7 @@ Voice2Text is a Windows desktop dictation utility using CustomTkinter and faster
 - `Voice2Text.pyw`: application lifecycle, floating controls, tray menu, and UI dispatch.
 - `audio_recorder.py`, `transcriber.py`: capture and CPU transcription.
 - `audio_meter.py`, `ui_controls.py`: compact audio display and image buttons.
-- `injector.py`, `clipboard_guard.py`: target tracking and protected insertion.
+- `injector.py`, `clipboard_guard.py`: target tracking and protected insertion. Terminals always get direct Unicode input, because a raw-mode CLI on a classic console receives `Ctrl+V` as byte `0x16`.
 - `settings_window.py`, `config.py`: settings, validation, and portable paths.
 - `assets/`, `icon.svg`, `icon_generator.py`: editable artwork and generated icons.
 - `build_portable.py`: creates the root executable and its `_internal/` directory.
@@ -29,7 +29,7 @@ Use Windows PowerShell and Python 3.13, the verified interpreter version.
 
 ## Coding Style & Naming Conventions
 
-Use four-space indentation, UTF-8, `snake_case` functions/modules, `PascalCase` classes, and uppercase constants. Preserve Romanian interface text. No formatter or linter is configured. Keep Tk operations on the main thread; workers use `_post_ui`. Resolve model and log paths relative to the application, never a contributor's home directory.
+Use four-space indentation, UTF-8, `snake_case` functions/modules, `PascalCase` classes, and uppercase constants. Preserve Romanian interface text. No formatter or linter is configured. Keep Tk operations on the main thread; workers use `_post_ui`. Recording starts only from an explicit user action, never at launch or from the tray icon's default click. Resolve model and log paths relative to the application, never a contributor's home directory.
 
 ## Testing Guidelines
 

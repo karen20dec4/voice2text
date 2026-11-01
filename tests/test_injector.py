@@ -3,6 +3,8 @@ import ctypes
 import unittest
 from unittest.mock import Mock, patch
 
+import pywintypes
+
 from clipboard_fakes import FakeClipboard, isolate_clipboard
 import injector
 
@@ -22,10 +24,63 @@ class InjectorTests(unittest.TestCase):
             patch("injector.win32gui.IsWindow", return_value=True),
             patch("injector.win32gui.GetForegroundWindow", return_value=999),
             patch("injector.time.sleep"),
+            patch("injector.win32gui.IsIconic", return_value=False),
+            patch("injector.win32gui.GetClassName", return_value="Notepad"),
         ]
-        _, self.is_window, self.foreground, self.sleep = [p.start() for p in self.patches]
+        _, self.is_window, self.foreground, self.sleep, self.iconic, self.window_class = [
+            p.start() for p in self.patches]
         for p in self.patches:
             self.addCleanup(p.stop)
+
+    def _accept_unicode(self):
+        typed = []
+
+        def accept_input(count, events, size):
+            typed.extend(event.ki.wScan for event in events if not event.ki.dwFlags & 2)
+            return count
+
+        self.user32.SendInput.side_effect = accept_input
+        return typed
+
+    def test_terminals_get_unicode_input_because_raw_cli_ignores_ctrl_v(self):
+        self.foreground.return_value = 123
+        typed = self._accept_unicode()
+        for window_class in ("ConsoleWindowClass", "CASCADIA_HOSTING_WINDOW_CLASS"):
+            with self.subTest(window_class=window_class):
+                typed.clear()
+                self.window_class.return_value = window_class
+                self.injector.restore_and_inject("țară", add_trailing_space=False, target_hwnd=123)
+                self.assertEqual("".join(map(chr, typed)), "țară")
+                self.user32.keybd_event.assert_not_called()
+                self.assertEqual(self.clipboard.data, {13: "original"})
+                self.assertEqual(self.clipboard.sequence, 1)
+
+    def test_auto_enter_in_terminal_follows_typed_text(self):
+        self.foreground.return_value = 123
+        self.window_class.return_value = "ConsoleWindowClass"
+        typed = self._accept_unicode()
+        self.injector.restore_and_inject("ok", auto_enter=True, add_trailing_space=False, target_hwnd=123)
+        self.assertEqual("".join(map(chr, typed)), "ok")
+        self.assertEqual([call.args[0] for call in self.user32.keybd_event.call_args_list], [0x0D, 0x0D])
+
+    def test_unreadable_clipboard_falls_back_to_unicode_input(self):
+        self.foreground.return_value = 123
+        typed = self._accept_unicode()
+        with patch.object(self.clipboard, "OpenClipboard", side_effect=pywintypes.error(5, "Open", "denied")), \
+                patch("clipboard_guard.time.sleep"):
+            self.injector.restore_and_inject("text", add_trailing_space=False, target_hwnd=123)
+        self.assertEqual("".join(map(chr, typed)), "text")
+
+    def test_maximized_target_is_not_restored_to_smaller_size(self):
+        self.foreground.return_value = 123
+        self.injector.restore_and_inject("text", target_hwnd=123)
+        self.user32.ShowWindow.assert_not_called()
+
+    def test_minimized_target_is_restored_before_insertion(self):
+        self.foreground.return_value = 123
+        self.iconic.return_value = True
+        self.injector.restore_and_inject("text", target_hwnd=123)
+        self.user32.ShowWindow.assert_called_once_with(123, injector.win32con.SW_RESTORE)
 
     def test_failed_focus_never_pastes_into_unrelated_window(self):
         with self.assertRaises(RuntimeError):
@@ -118,10 +173,10 @@ class InjectorTests(unittest.TestCase):
         self.assertEqual(self.clipboard.data, {13: "new user copy"})
 
     def test_explicit_target_does_not_follow_foreground_tracker(self):
-        self.foreground.return_value = 123
         self.injector.last_target_hwnd = 456
+        self.user32.SetForegroundWindow.side_effect = lambda hwnd: setattr(self.foreground, "return_value", hwnd)
         self.injector.restore_and_inject("text", target_hwnd=123)
-        self.assertEqual(self.user32.ShowWindow.call_args.args[0], 123)
+        self.user32.SetForegroundWindow.assert_called_once_with(123)
         self.assertEqual(self.clipboard.data, {13: "original"})
 
     def test_held_modifier_aborts_without_sending_keys(self):

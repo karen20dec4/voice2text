@@ -67,6 +67,10 @@ class ClipboardGuard:
             # Windows may advance this counter on CloseClipboard after a write.
             self.sequence = clipboard.GetClipboardSequenceNumber()
             return self
+        except pywintypes.error as error:
+            # Busy or unreadable clipboard: nothing was pasted, so typing is safe.
+            win32gui.DestroyWindow(self.hwnd)
+            raise UnsupportedClipboardFormat("Clipboardul nu poate fi accesat") from error
         except Exception:
             win32gui.DestroyWindow(self.hwnd)
             raise

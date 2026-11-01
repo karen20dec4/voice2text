@@ -111,3 +111,26 @@ Executabilul se află direct în rădăcină, ca `Voice2Text.exe`, împreună cu
 Shortcutul Desktop `Voice2Text.lnk` indică executabilul și folderul de lucru din H:. Pictograma are sursă vectorială `icon.svg` și format Windows `icon.ico` cu șapte rezoluții, de la 16 la 256 px; este inclusă și în executabil. `Create-Desktop-Shortcut.ps1` poate reface legătura după o mutare ulterioară.
 
 Buildul verifică și rezervă mutexul aplicației pe durata instalării, evitând suprascrierea unui bundle pornit în timpul compilării. **55 de teste trecute**, verificare nativă izolată a clipboardului, build final și pornire reală din H: cu `medium` pregătit. Modelele, binarele, configurația personală, jurnalele și `.migration-backup/` sunt excluse din Git. Copiile originale ale cacheului, vechiul build și shortcutul anterior sunt păstrate în backupul local de migrare.
+
+## Sesiuni Claude Code CLI, control la pornire și al doilea audit
+
+Utilizatorul a raportat că dictarea nu funcționează în sesiunile Claude CLI și a cerut ca aplicația să deschidă doar fereastra, iar butonul să fie roșu deschis în timpul înregistrării.
+
+**Cauza pentru Claude CLI.** Sesiunile rulează în consola clasică (`ConsoleWindowClass`). Reprodus pe o consolă reală în mod raw, ca Claude Code: `Ctrl+V` ajunge ca octetul `0x16`, nu ca lipire, deși jurnalul scria `Inserare finalizată`. Consola preia `Ctrl+V` doar în modul de intrare procesat. Introducerea Unicode a livrat textul complet, cu diacritice. Terminalele folosesc acum direct `SendInput` Unicode, fără clipboard. `EnableLUA=0` pe acest sistem, deci UIPI nu era implicat.
+
+| Prioritate | Problemă și impact | Corecție |
+| --- | --- | --- |
+| Ridicată | În terminale, textul nu era inserat și succesul raportat era fals. | Rutare după clasa ferestrei; Enter automat are o pauză mai mare în terminale. |
+| Ridicată | Click pe pictograma din tray pornea înregistrarea, fiindcă dictarea era acțiunea implicită. Pornirea aplicației în sine nu înregistra: nici codul, nici jurnalul nu arată altceva. | Acțiunea implicită arată sau ascunde panoul. |
+| Medie | `SW_RESTORE` micșora ferestrele maximizate la fiecare inserare. | Restaurare doar pentru ferestrele minimizate; activare doar când este necesară. |
+| Medie | Lansarea cu panoul ascuns sau a doua lansare nu afișau nimic. | Panoul se deschide la fiecare lansare; a doua instanță semnalează prima printr-un eveniment Windows. |
+| Medie | O poziție salvată pe un monitor deconectat lăsa panoul în afara ecranului. | Poziția este verificată la pornire și la afișare. |
+| Medie | Setările listau microfoane care refuză 16 kHz (7 din 16 aici: WASAPI și WDM-KS), cu eroare la înregistrare. | Lista conține doar dispozitivele care acceptă formatul de captură. |
+| Medie | Un clipboard blocat sau nelizibil anula inserarea. | Se trece la introducerea Unicode, înaintea oricărei lipiri. |
+| Scăzută | Shortcutul nou nu apărea în panou până la următorul eveniment. | Starea este actualizată la salvare. |
+
+Butonul **Dictează** are un fundal roșu deschis și text închis cât timp înregistrează.
+
+**Verificări.** **68 de teste trecute**; 13 teste noi sau modificate eșuează pe codul vechi. Clipboardul nativ izolat a trecut, iar buildul a fost regenerat. Injectorul real a inserat textul cu diacritice în Claude Code v2.1.316 pornit într-o consolă clasică, citit apoi din bufferul consolei, fără Enter. A doua lansare reală a `Voice2Text.exe` a afișat panoul ascuns, fără înregistrare.
+
+**Limite.** Nu a fost verificat ciclul complet F9, microfon, inserare în Claude CLI. Enter automat în Claude CLI nu a fost verificat, ca să nu se trimită mesaje. Windows Terminal, ConEmu și mintty sunt incluse după clasa ferestrei, fără test pe aceste sisteme. Schimbarea ferestrei în timpul transcrierii poate anula inserarea și deschide fereastra de recuperare. Într-un terminal cu file, textul merge în fila activă în acel moment. Pe un sistem cu UAC activ, aplicația neelevată nu poate insera într-un terminal Administrator, iar eșecul nu poate fi detectat.

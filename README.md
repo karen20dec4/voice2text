@@ -6,14 +6,16 @@ Utilitar Windows de dictare vocală în română și engleză, cu transcriere lo
 
 ## Utilizare
 
-1. Pornește `Voice2Text.exe` sau `Start-Voice2Text.bat`.
+1. Pornește `Voice2Text.exe` sau `Start-Voice2Text.bat`. Se deschide doar panoul; înregistrarea nu pornește singură. O a doua lansare afișează panoul existent.
 2. Așteaptă încărcarea modelului și selectează câmpul în care vrei textul.
-3. Apasă **F9**, vorbește, apoi apasă din nou **F9**.
+3. Apasă **F9** sau **Dictează**, vorbește, apoi oprește la fel. Butonul este roșu deschis cât timp înregistrează.
 4. Așteaptă transcrierea și verifică textul inserat. Enter automat este dezactivat implicit.
 
-Panoul poate fi mutat prin tragere din orice zonă, inclusiv de pe butoane și pictograme. Un click simplu păstrează acțiunea butonului. Meniul **⌄** afișează microfonul, modelul, limba și diagnosticul complet; rotița deschide setările.
+Panoul poate fi mutat prin tragere din orice zonă, inclusiv de pe butoane și pictograme. Un click simplu păstrează acțiunea butonului. Meniul **⌄** afișează microfonul, modelul, limba și diagnosticul complet; rotița deschide setările. Click pe pictograma din tray arată sau ascunde panoul; dictarea din tray se pornește explicit din meniu.
 
-Textul folosește o lipire protejată când clipboardul poate fi restaurat. Dacă ai copiat o captură de ecran sau fișiere, introducerea Unicode păstrează clipboardul intact. Suportul depinde de aplicația țintă; ferestrele cu privilegii mai mari pot bloca introducerea. Erorile oferă transcrierea pentru recuperare manuală.
+În terminale (consola Windows, Windows Terminal, ConEmu, mintty), inclusiv în sesiunile Claude Code CLI, textul este tastat direct prin Unicode: `Ctrl+V` nu lipește într-o aplicație CLI în mod raw din consola clasică. Fiecare dictare merge în fereastra activă la pornirea ei, deci poți folosi oricâte sesiuni. Rămâi în acea fereastră până apare textul; dacă focusul nu poate fi readus, transcrierea este oferită pentru recuperare.
+
+În celelalte aplicații, textul folosește o lipire protejată când clipboardul poate fi restaurat. Dacă ai copiat o captură de ecran sau fișiere, introducerea Unicode păstrează clipboardul intact. Suportul depinde de aplicația țintă; ferestrele cu privilegii mai mari pot bloca introducerea. Erorile oferă transcrierea pentru recuperare manuală.
 
 Ieși normal din meniul tray pentru eliberarea resurselor. `Stop-Voice2Text.bat` este o oprire forțată pentru instanțele din acest folder.
 
@@ -26,6 +28,8 @@ Ieși normal din meniul tray pentru eliberarea resurselor. `Stop-Voice2Text.bat`
 | `models/` | Cacheul local pentru modelele Whisper |
 | `config.json` | Setările personale, lângă executabil/surse |
 | `logs/voice2text.log` | Jurnal rotativ cu metadate și erori |
+
+Setările listează doar microfoanele care acceptă captura la 16 kHz. Panoul se deschide la fiecare lansare, chiar dacă a fost ascuns anterior; o poziție salvată pe un monitor deconectat revine într-o zonă vizibilă.
 
 Sursele și executabilul folosesc același `models/`, calculat relativ la locația aplicației, fără o cale fixă spre un anumit disc. Prima utilizare a unui model necesită internet. Modelele deja descărcate pot fi folosite offline. Înregistrările și transcrierile nu sunt salvate intenționat în jurnal.
 
@@ -68,7 +72,7 @@ python -m unittest discover -s tests -v
 python tests/native_clipboard_check.py
 ```
 
-Testele izolează microfonul, descărcările și trimiterea tastelor. Verificarea nativă folosește un clipboard privat, separat de desktopul utilizatorului. Testele includ pornirea fără consolă, schimbarea modelelor, protecția clipboardului și interacțiunile panoului.
+Testele izolează microfonul, descărcările și trimiterea tastelor. Verificarea nativă folosește un clipboard privat, separat de desktopul utilizatorului. Testele includ pornirea fără consolă și fără înregistrare, schimbarea modelelor, protecția clipboardului, rutarea inserării în terminale și interacțiunile panoului.
 
 Detalii istorice despre corecții: [AUDIT_REPORT.md](AUDIT_REPORT.md). Ghid pentru contribuții: [AGENTS.md](AGENTS.md).
 

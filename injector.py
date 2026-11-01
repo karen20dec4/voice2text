@@ -48,6 +48,15 @@ user32.keybd_event.argtypes = [wintypes.BYTE, wintypes.BYTE, wintypes.DWORD, cty
 user32.SendInput.argtypes = [wintypes.UINT, ctypes.POINTER(INPUT), ctypes.c_int]
 user32.SendInput.restype = wintypes.UINT
 
+# A raw-mode CLI such as Claude Code receives Ctrl+V as byte 0x16 on classic
+# consoles instead of a paste, so terminals always get direct Unicode input.
+TERMINAL_WINDOW_CLASSES = frozenset({
+    "ConsoleWindowClass",
+    "CASCADIA_HOSTING_WINDOW_CLASS",
+    "VirtualConsoleClass",
+    "mintty",
+})
+
 
 class WindowInjector:
     def __init__(self):
@@ -64,6 +73,14 @@ class WindowInjector:
             return False
         _, process_id = win32process.GetWindowThreadProcessId(hwnd)
         return process_id != os.getpid() and bool(win32gui.GetWindowText(hwnd))
+
+    @staticmethod
+    def _is_terminal(hwnd):
+        try:
+            return win32gui.GetClassName(hwnd) in TERMINAL_WINDOW_CLASSES
+        except Exception:
+            logging.debug("Nu pot identifica tipul ferestrei", exc_info=True)
+            return False
 
     def get_target_window(self):
         # Capture at dictation start; the tracker may change during inference.
@@ -132,6 +149,26 @@ class WindowInjector:
                                    "verifică drepturile aplicației și textul deja introdus")
             start = end
 
+    def _paste_or_type(self, text, hwnd):
+        try:
+            with ClipboardGuard(text) as clipboard_guard:
+                try:
+                    time.sleep(0.04)
+                    self._check_target(hwnd)
+                    clipboard_guard.ensure_unchanged()
+                    try:
+                        user32.keybd_event(0x11, 0, 0, 0)
+                        user32.keybd_event(0x56, 0, 0, 0)
+                        time.sleep(0.02)
+                    finally:
+                        user32.keybd_event(0x56, 0, 2, 0)
+                        user32.keybd_event(0x11, 0, 2, 0)
+                finally:
+                    time.sleep(0.4)
+        except UnsupportedClipboardFormat:
+            logging.info("Inserare Unicode directă; clipboardul este păstrat intact")
+            self._inject_unicode(text, hwnd)
+
     def restore_and_inject(self, text, auto_enter=False, add_trailing_space=True, target_hwnd=None):
         if not text:
             return
@@ -143,8 +180,11 @@ class WindowInjector:
                 raise RuntimeError("Fereastra țintă nu mai există")
             if self._stopped.is_set():
                 raise RuntimeError("Voice2Text se închide")
-            user32.ShowWindow(hwnd, win32con.SW_RESTORE)
-            user32.SetForegroundWindow(hwnd)
+            # SW_RESTORE would also shrink a maximized window; only undo minimizing.
+            if win32gui.IsIconic(hwnd):
+                user32.ShowWindow(hwnd, win32con.SW_RESTORE)
+            if win32gui.GetForegroundWindow() != hwnd:
+                user32.SetForegroundWindow(hwnd)
             # Activation can be asynchronous; never paste unless it actually worked.
             for _ in range(10):
                 if win32gui.GetForegroundWindow() == hwnd:
@@ -153,26 +193,14 @@ class WindowInjector:
             self._check_target(hwnd)
             self._wait_for_modifiers(hwnd)
 
-            try:
-                with ClipboardGuard(text) as clipboard_guard:
-                    try:
-                        time.sleep(0.04)
-                        self._check_target(hwnd)
-                        clipboard_guard.ensure_unchanged()
-                        try:
-                            user32.keybd_event(0x11, 0, 0, 0)
-                            user32.keybd_event(0x56, 0, 0, 0)
-                            time.sleep(0.02)
-                        finally:
-                            user32.keybd_event(0x56, 0, 2, 0)
-                            user32.keybd_event(0x11, 0, 2, 0)
-                    finally:
-                        time.sleep(0.4)
-            except UnsupportedClipboardFormat:
-                logging.info("Inserare Unicode directă; clipboardul este păstrat intact")
+            terminal = self._is_terminal(hwnd)
+            if terminal:
                 self._inject_unicode(text, hwnd)
+            else:
+                self._paste_or_type(text, hwnd)
             if auto_enter:
-                time.sleep(0.04)
+                # A CLI could merge an immediate Enter into the typed text burst.
+                time.sleep(0.2 if terminal else 0.04)
                 self._check_target(hwnd)
                 self._wait_for_modifiers(hwnd)
                 try:

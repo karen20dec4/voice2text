@@ -7,6 +7,20 @@ from audio_recorder import AudioRecorder
 
 
 class RecorderTests(unittest.TestCase):
+    def test_settings_list_only_microphones_that_accept_16_khz(self):
+        devices = [{"name": "MME mic", "max_input_channels": 1},
+                   {"name": "Speakers", "max_input_channels": 0},
+                   {"name": "WASAPI mic", "max_input_channels": 2}]
+
+        def check(device, **settings):
+            self.assertEqual(settings["samplerate"], 16000)
+            if device == 2:
+                raise ValueError("Invalid sample rate")
+
+        with patch("audio_recorder.sd.query_devices", return_value=devices), patch(
+                "audio_recorder.sd.check_input_settings", side_effect=check):
+            self.assertEqual(AudioRecorder.get_input_devices(), [(0, "[0] MME mic")])
+
     def test_meter_measures_real_samples_and_silence(self):
         recorder = AudioRecorder()
         with patch("audio_recorder.sd.InputStream", return_value=Mock()), patch("audio_recorder.time.monotonic", return_value=10):

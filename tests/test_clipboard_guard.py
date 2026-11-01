@@ -1,8 +1,10 @@
 import unittest
 from unittest.mock import patch
 
+import pywintypes
+
 from clipboard_fakes import FakeClipboard, isolate_clipboard
-from clipboard_guard import ClipboardGuard
+from clipboard_guard import ClipboardGuard, UnsupportedClipboardFormat
 
 
 class ClipboardTests(unittest.TestCase):
@@ -31,6 +33,16 @@ class ClipboardTests(unittest.TestCase):
                         self.fail("Unsupported clipboard format must abort before pasting")
                 self.assertEqual(backend.data, original)
                 self.assertFalse(backend.opened)
+
+    def test_busy_clipboard_is_reported_as_unsupported_without_pasting(self):
+        backend = FakeClipboard()
+        error = pywintypes.error(5, "OpenClipboard", "Access is denied.")
+        with isolate_clipboard(backend), patch("clipboard_guard.time.sleep"), patch.object(
+                backend, "OpenClipboard", side_effect=error):
+            with self.assertRaises(UnsupportedClipboardFormat):
+                with ClipboardGuard("dictated"):
+                    self.fail("A busy clipboard must abort before pasting")
+        self.assertEqual(backend.data, {13: "original"})
 
     def test_failed_replacement_rolls_back_all_formats(self):
         original = {13: "Original", 49300: b"rich"}

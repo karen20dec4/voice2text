@@ -127,14 +127,23 @@ class AudioRecorder:
         return audio_data
 
     @staticmethod
+    def _accepts_capture_format(index, sample_rate=16000):
+        # WASAPI and WDM-KS devices commonly refuse Whisper's 16 kHz rate.
+        try:
+            sd.check_input_settings(device=index, samplerate=sample_rate, channels=1, dtype="float32")
+            return True
+        except Exception:
+            return False
+
+    @staticmethod
     def get_input_devices():
         devices = []
         try:
             device_list = sd.query_devices()
             for idx, dev in enumerate(device_list):
-                if dev.get("max_input_channels", 0) > 0:
+                if dev.get("max_input_channels", 0) > 0 and AudioRecorder._accepts_capture_format(idx):
                     name = f"[{idx}] {dev.get('name')}"
                     devices.append((idx, name))
         except Exception as e:
-            print("Eroare la detectare microfoane:", e)
+            logging.warning("Eroare la detectare microfoane: %s", e)
         return devices

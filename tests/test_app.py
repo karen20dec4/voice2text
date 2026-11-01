@@ -102,9 +102,71 @@ class AppTests(unittest.TestCase):
         with patch.object(app_module.win32event, "CreateMutex"), patch.object(
                 app_module.win32api, "GetLastError", return_value=183), patch.object(
                 app_module, "Voice2TextApp") as constructor, patch.object(app_module, "configure_logging"), patch.object(
-                app_module.win32api, "CloseHandle"):
+                app_module.win32api, "CloseHandle"), patch.object(app_module, "show_running_instance") as show:
             app_module.main()
         constructor.assert_not_called()
+        show.assert_called_once_with()
+
+    def test_second_launch_opens_the_window_of_the_running_instance(self):
+        self.app._show_event = object()
+        self.app.show_floating = Mock()
+        with patch.object(app_module.win32event, "WaitForSingleObject",
+                          return_value=app_module.win32event.WAIT_OBJECT_0):
+            self.app._drain_ui_queue()
+        self.app.show_floating.assert_called_once_with()
+
+    def test_tray_click_shows_window_and_never_starts_recording(self):
+        self.app.toggle_floating = Mock()
+        self.app.toggle_dictation = Mock()
+        menu = self.app._tray_menu()
+        default = [item for item in menu.items if item.default]
+        self.assertEqual(len(default), 1)
+        default[0](Mock())
+        callback, args = self.app._ui_queue.get_nowait()
+        callback(*args)
+        self.app.toggle_floating.assert_called_once_with()
+        self.app.toggle_dictation.assert_not_called()
+
+    def test_recording_state_tints_the_dictate_button(self):
+        self.app.transcriber = Mock()
+        self.app.injector = Mock()
+        self.app.recorder = Mock()
+        self.app.btn_dictate.set_recording.reset_mock()
+        self.app._start_recording()
+        self.app.btn_dictate.set_recording.assert_called_once_with(True)
+        self.app.btn_dictate.set_recording.reset_mock()
+        with patch.object(app_module.threading, "Thread"):
+            self.app._stop_recording_and_process()
+        self.app.btn_dictate.set_recording.assert_called_once_with(False)
+
+    def test_failed_microphone_start_leaves_button_untinted(self):
+        self.app.transcriber = Mock()
+        self.app.injector = Mock()
+        self.app.recorder = Mock()
+        self.app.recorder.start.side_effect = OSError("no microphone")
+        with self.assertLogs(level="ERROR"), patch.object(app_module.messagebox, "showerror"):
+            self.app._start_recording()
+        self.app.btn_dictate.set_recording.assert_not_called()
+        self.assertFalse(self.app.is_recording)
+
+    def test_position_on_disconnected_monitor_returns_to_visible_default(self):
+        with patch.object(app_module.win32api, "MonitorFromPoint", return_value=None):
+            self.assertEqual(app_module.Voice2TextApp._visible_position(5000, 5000),
+                             app_module.DEFAULT_WINDOW_POSITION)
+        with patch.object(app_module.win32api, "MonitorFromPoint", return_value=1):
+            self.assertEqual(app_module.Voice2TextApp._visible_position(1684, 400), (1684, 400))
+
+    def test_saved_hotkey_updates_visible_status(self):
+        self.app.transcriber = Mock()
+        self.app.root = Mock()
+        self.app.audio_meter = Mock()
+        self.app.settings_win = None
+        self.app._hotkey_value = "f9"
+        self.app.current_hotkey = "binding"
+        with patch.object(app_module, "save_config"), patch.object(self.app, "_setup_hotkey"):
+            self.app._on_settings_saved({"hotkey": "f8", "model_size": "small"})
+        self.assertEqual(self.app.audio_meter.hotkey, "F8")
+        self.app.audio_meter.set_message.assert_called_once_with("Model pregătit • F8: start / stop")
 
     def test_insertion_failure_preserves_transcript_and_clears_busy_on_ui_thread(self):
         self.app._session_config = {"language": "ro"}
@@ -144,9 +206,15 @@ class GuiSmokeTests(unittest.TestCase):
         with patch.object(app_module, "WhisperTranscriber", side_effect=fake_model), patch.object(
                 app_module.Voice2TextApp, "_setup_hotkey"), patch.object(
                 app_module.Voice2TextApp, "_setup_tray"), patch.object(
-                app_module, "load_config", return_value={"window_x": 100, "window_y": 100,
+                app_module.AudioRecorder, "start") as start_microphone, patch.object(
+                app_module, "load_config", return_value={"window_x": 100, "window_y": 100, "floating_visible": False,
                                                         "hotkey": "f9", "model_size": "small"}):
             app = app_module.Voice2TextApp()
+            # Launching opens the panel even if it was hidden, without recording.
+            self.assertTrue(app.config["floating_visible"])
+            self.assertFalse(app.root._withdraw_called_before_window_exists)
+            start_microphone.assert_not_called()
+            self.assertFalse(app.is_recording)
             app.root.withdraw()
             app.root.report_callback_exception = lambda *args: errors.append(args)
             def shutdown():
@@ -209,6 +277,14 @@ class GuiSmokeTests(unittest.TestCase):
                     app.btn_gear._canvas.event_generate("<ButtonRelease-1>", x=5, y=5)
                     app.root.update()
                     gear_action.assert_called_once()
+                plain = app.btn_dictate._skin_image.cget("dark_image")
+                app.btn_dictate.set_recording(True)
+                red, green, blue, _ = app.btn_dictate._skin_image.cget("dark_image").getpixel((plain.width // 2, 8))
+                self.assertGreater(red, 200)
+                self.assertGreater(red, blue + 40)
+                self.assertGreater(red, green + 40)
+                app.btn_dictate.set_recording(False)
+                self.assertEqual(app.btn_dictate._skin_image.cget("dark_image").tobytes(), plain.tobytes())
                 app.root.withdraw()
                 app.open_settings()
                 app.settings_win.withdraw()

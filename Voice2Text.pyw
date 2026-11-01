@@ -24,9 +24,15 @@ from transcriber import WhisperTranscriber
 from injector import WindowInjector
 from settings_window import SettingsWindow
 
+SHOW_WINDOW_EVENT = "Local\\Voice2Text.Show"
+DEFAULT_WINDOW_POSITION = (120, 120)
+
+
 class Voice2TextApp:
     def __init__(self):
         self.config = load_config()
+        # Launching means opening the panel, even after hiding it last time.
+        self.config["floating_visible"] = True
 
         # State
         self.is_recording = False
@@ -76,10 +82,10 @@ class Voice2TextApp:
         self.injector = WindowInjector()
 
         # Apply position
-        wx = self.config.get("window_x", 120)
-        wy = self.config.get("window_y", 120)
+        wx, wy = self._visible_position(self.config.get("window_x", 120), self.config.get("window_y", 120))
         self.root.geometry(f"+{wx}+{wy}")
 
+        self._show_event = win32event.CreateEvent(None, False, False, SHOW_WINDOW_EVENT)
         self._build_floating_pill()
         self._setup_win32_toolwindow()
         try:
@@ -92,11 +98,18 @@ class Voice2TextApp:
         self._drain_ui_queue()
         self._refresh_audio_meter()
 
-        if not self.config.get("floating_visible", True):
-            self.root.withdraw()
-
         # Handle close cleanly
         self.root.protocol("WM_DELETE_WINDOW", self.exit_app)
+
+    @staticmethod
+    def _visible_position(x, y):
+        # The saved position can belong to a monitor that is no longer connected.
+        try:
+            if win32api.MonitorFromPoint((x + 20, y + 20), win32con.MONITOR_DEFAULTTONULL):
+                return x, y
+        except Exception:
+            logging.warning("Nu pot verifica poziția ferestrei", exc_info=True)
+        return DEFAULT_WINDOW_POSITION
 
     def _get_own_hwnd(self):
         try:
@@ -291,6 +304,8 @@ class Voice2TextApp:
     def _drain_ui_queue(self):
         if self._closing.is_set():
             return
+        if win32event.WaitForSingleObject(self._show_event, 0) == win32event.WAIT_OBJECT_0:
+            self.show_floating()
         for _ in range(100):
             try:
                 callback, args = self._ui_queue.get_nowait()
@@ -350,6 +365,7 @@ class Voice2TextApp:
             device_idx = self.config.get("device_index")
             self.recorder.start(device_index=device_idx)
             self.is_recording = True
+            self.btn_dictate.set_recording(True)
             self.btn_dictate.configure(
                 text="● Ascult…",
                 fg_color="#f38ba8",
@@ -367,6 +383,7 @@ class Voice2TextApp:
         self._processing_started_at = time.monotonic()
         self._processing_stage = "Transcriu"
 
+        self.btn_dictate.set_recording(False)
         self.btn_dictate.configure(
             text="Transcriu…",
             fg_color="#f9e2af",
@@ -471,6 +488,7 @@ class Voice2TextApp:
             raise
         self.config = new_config
         self.audio_meter.hotkey = self.config.get("hotkey", "f9").upper()
+        self.audio_meter.set_message(f"Model pregătit • {self.audio_meter.hotkey}: start / stop")
 
         # Update model if changed
         desired_model = self.config.get("model_size", "small")
@@ -489,7 +507,10 @@ class Voice2TextApp:
             self.show_floating()
 
     def show_floating(self):
+        x, y = self._visible_position(self.root.winfo_x(), self.root.winfo_y())
+        self.root.geometry(f"+{x}+{y}")
         self.root.deiconify()
+        self.root.lift()
         self.config["floating_visible"] = True
         self._persist_config()
 
@@ -511,16 +532,18 @@ class Voice2TextApp:
         else:
             img = Image.new("RGBA", (64, 64), (31, 111, 235, 255))
 
-        menu = pystray.Menu(
-            pystray.MenuItem("🎙️ Dictare (Start/Stop)", lambda: self._post_ui(self.toggle_dictation), default=True),
-            pystray.MenuItem("👁️ Arată / Ascunde Butonul", lambda: self._post_ui(self.toggle_floating)),
+        self.tray_icon = pystray.Icon("Voice2Text", img, "Voice2Text - Dictare Vocală", self._tray_menu())
+        threading.Thread(target=self.tray_icon.run, daemon=True).start()
+
+    def _tray_menu(self):
+        # A click on the tray icon runs the default item; it must never start the microphone.
+        return pystray.Menu(
+            pystray.MenuItem("🎙️ Dictare (Start/Stop)", lambda: self._post_ui(self.toggle_dictation)),
+            pystray.MenuItem("👁️ Arată / Ascunde Butonul", lambda: self._post_ui(self.toggle_floating), default=True),
             pystray.MenuItem("⚙️ Setări...", lambda: self._post_ui(self.open_settings)),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("❌ Închide Voice2Text", lambda: self._post_ui(self.exit_app))
         )
-
-        self.tray_icon = pystray.Icon("Voice2Text", img, "Voice2Text - Dictare Vocală", menu)
-        threading.Thread(target=self.tray_icon.run, daemon=True).start()
 
     def exit_app(self):
         if self._closing.is_set():
@@ -558,12 +581,21 @@ def configure_logging():
                         format="%(asctime)s %(levelname)s %(message)s")
 
 
+def show_running_instance():
+    try:
+        event = win32event.OpenEvent(win32event.EVENT_MODIFY_STATE, False, SHOW_WINDOW_EVENT)
+        win32event.SetEvent(event)
+    except Exception:
+        logging.warning("Nu pot afișa fereastra instanței pornite", exc_info=True)
+
+
 def main():
     configure_logging()
     mutex = win32event.CreateMutex(None, False, "Local\\Voice2Text")
     try:
         if win32api.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
             logging.info("Voice2Text rulează deja")
+            show_running_instance()
             return
         app = Voice2TextApp()
         app.run()
