@@ -1,0 +1,9 @@
+customtkinter==6.0.0
+faster-whisper==1.2.1
+keyboard==0.13.5
+numpy==2.3.3
+Pillow==13.0.0
+pyperclip==1.11.0
+pystray==0.19.5
+pywin32==312
+sounddevice==0.5.6

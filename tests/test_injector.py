@@ -1,0 +1,146 @@
+import threading
+import ctypes
+import unittest
+from unittest.mock import Mock, patch
+
+from clipboard_fakes import FakeClipboard, isolate_clipboard
+import injector
+
+
+class InjectorTests(unittest.TestCase):
+    def setUp(self):
+        with patch("injector.threading.Thread"):
+            self.injector = injector.WindowInjector()
+        self.injector.last_target_hwnd = 123
+        self.user32 = Mock()
+        self.user32.GetAsyncKeyState.return_value = 0
+        self.clipboard = FakeClipboard()
+        stack = isolate_clipboard(self.clipboard)
+        self.addCleanup(stack.close)
+        self.patches = [
+            patch("injector.user32", self.user32),
+            patch("injector.win32gui.IsWindow", return_value=True),
+            patch("injector.win32gui.GetForegroundWindow", return_value=999),
+            patch("injector.time.sleep"),
+        ]
+        _, self.is_window, self.foreground, self.sleep = [p.start() for p in self.patches]
+        for p in self.patches:
+            self.addCleanup(p.stop)
+
+    def test_failed_focus_never_pastes_into_unrelated_window(self):
+        with self.assertRaises(RuntimeError):
+            self.injector.restore_and_inject("dictated")
+        self.user32.keybd_event.assert_not_called()
+        self.assertEqual(self.clipboard.data, {13: "original"})
+
+    def test_destroyed_target_never_pastes(self):
+        self.is_window.return_value = False
+        with self.assertRaises(RuntimeError):
+            self.injector.restore_and_inject("dictated")
+        self.user32.keybd_event.assert_not_called()
+
+    def test_screenshot_is_preserved_while_unicode_text_is_inserted(self):
+        self.foreground.return_value = 123
+        screenshot = {2: 12345, 8: b"screenshot DIB", 49300: b"PNG bytes"}
+        self.clipboard.user_copy(screenshot)
+        original_sequence = self.clipboard.sequence
+        down_units = []
+
+        def accept_input(count, events, size):
+            self.assertEqual(size, ctypes.sizeof(injector.INPUT))
+            self.assertEqual(size, 40 if ctypes.sizeof(ctypes.c_void_p) == 8 else 28)
+            self.assertEqual(len(events) % 2, 0)
+            for index in range(0, len(events), 2):
+                self.assertEqual(events[index].ki.dwFlags, 4)
+                self.assertEqual(events[index + 1].ki.dwFlags, 6)
+                self.assertEqual(events[index].ki.wScan, events[index + 1].ki.wScan)
+            for event in events:
+                self.assertEqual(event.type, 1)
+                self.assertEqual(event.ki.wVk, 0)
+                self.assertTrue(event.ki.dwFlags & 4)
+                if not event.ki.dwFlags & 2:
+                    down_units.append(event.ki.wScan)
+            return count
+
+        self.user32.SendInput.side_effect = accept_input
+        self.injector.restore_and_inject("Țară 🙂", add_trailing_space=False)
+        encoded = b"".join(unit.to_bytes(2, "little") for unit in down_units)
+        self.assertEqual(encoded.decode("utf-16-le"), "Țară 🙂")
+        self.assertEqual(self.clipboard.data, screenshot)
+        self.assertEqual(self.clipboard.sequence, original_sequence)
+        self.user32.keybd_event.assert_not_called()
+
+    def test_failed_unicode_insertion_is_reported_without_losing_files(self):
+        self.foreground.return_value = 123
+        original = {15: ("C:/capture.png",)}
+        self.clipboard.user_copy(original)
+        self.user32.SendInput.return_value = 0
+        with self.assertRaisesRegex(RuntimeError, "introduce textul"):
+            self.injector.restore_and_inject("Test", add_trailing_space=False)
+        self.assertEqual(self.clipboard.data, original)
+
+    def test_partial_unicode_send_releases_last_key_without_typing_remainder(self):
+        self.foreground.return_value = 123
+        self.clipboard.user_copy({2: 12345})
+        accepted = []
+        def accept_one(count, events, size):
+            accepted.append((events[0].ki.wScan, events[0].ki.dwFlags))
+            return 1
+        self.user32.SendInput.side_effect = accept_one
+        with self.assertRaises(RuntimeError):
+            self.injector.restore_and_inject("Țară", add_trailing_space=False)
+        self.assertEqual(accepted, [(ord("Ț"), 4), (ord("Ț"), 6)])
+
+    def test_unicode_chunks_never_split_a_surrogate_pair(self):
+        self.foreground.return_value = 123
+        self.clipboard.user_copy({2: 12345})
+        chunks = []
+        def accept_input(count, events, size):
+            units = [event.ki.wScan for event in events if not event.ki.dwFlags & 2]
+            self.assertFalse(0xD800 <= units[-1] <= 0xDBFF)
+            self.assertFalse(0xDC00 <= units[0] <= 0xDFFF)
+            chunks.extend(units)
+            return count
+        self.user32.SendInput.side_effect = accept_input
+        text = "a" * 127 + "🙂b"
+        self.injector.restore_and_inject(text, add_trailing_space=False)
+        self.assertEqual(b"".join(unit.to_bytes(2, "little") for unit in chunks).decode("utf-16-le"), text)
+
+    def test_clipboard_changed_by_user_is_not_overwritten(self):
+        self.foreground.return_value = 123
+
+        def user_copies_after_paste(duration):
+            if duration == 0.4:
+                self.clipboard.user_copy({13: "new user copy"})
+
+        self.sleep.side_effect = user_copies_after_paste
+        self.injector.restore_and_inject("dictated", add_trailing_space=False)
+        self.assertEqual(self.clipboard.data, {13: "new user copy"})
+
+    def test_explicit_target_does_not_follow_foreground_tracker(self):
+        self.foreground.return_value = 123
+        self.injector.last_target_hwnd = 456
+        self.injector.restore_and_inject("text", target_hwnd=123)
+        self.assertEqual(self.user32.ShowWindow.call_args.args[0], 123)
+        self.assertEqual(self.clipboard.data, {13: "original"})
+
+    def test_held_modifier_aborts_without_sending_keys(self):
+        self.foreground.return_value = 123
+        self.user32.GetAsyncKeyState.return_value = 0x8000
+        with self.assertRaises(RuntimeError):
+            self.injector.restore_and_inject("text")
+        self.user32.keybd_event.assert_not_called()
+        self.assertEqual(self.clipboard.data, {13: "original"})
+
+    def test_stop_waits_for_active_injection_cleanup(self):
+        finished = threading.Event()
+        self.injector._injection_lock.acquire()
+        stopping = threading.Thread(target=lambda: (self.injector.stop(), finished.set()))
+        stopping.start()
+        try:
+            self.assertTrue(self.injector._stopped.wait(1))
+            self.assertFalse(finished.wait(0.05))
+        finally:
+            self.injector._injection_lock.release()
+            stopping.join(2)
+        self.assertTrue(finished.is_set())
