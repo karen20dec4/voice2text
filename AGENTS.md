@@ -9,7 +9,8 @@ Voice2Text is a Windows desktop dictation utility using CustomTkinter and faster
 - `live_transcription.py`: cuts a running dictation at pauses, then transcribes and inserts each segment on its own thread.
 - `gpu_engine.py`, `native/`, `build_gpu_engine.py`: Vulkan transcription through a small DLL over whisper.cpp.
 - `audio_meter.py`, `ui_controls.py`: compact audio display and image buttons.
-- `injector.py`, `clipboard_guard.py`: target tracking and protected insertion. Terminals always get direct Unicode input, because a raw-mode CLI on a classic console receives `Ctrl+V` as byte `0x16`.
+- `hotkey.py`: global shortcut through `RegisterHotKey` on its own message thread. Do not return to a low-level keyboard hook: Windows silently removes one that misses `LowLevelHooksTimeout`, which left F9 dead until restart.
+- `injector.py`, `clipboard_guard.py`: target tracking and protected insertion. Terminals, including PuTTY/KiTTY sessions to remote servers, always get direct Unicode input, because a raw-mode CLI on a classic console receives `Ctrl+V` as byte `0x16` and PuTTY forwards it to the server. The optional `strip_diacritics` setting turns only the typed copy into ASCII; history and recovery keep the transcript.
 - `settings_window.py`, `config.py`: settings, validation, and portable paths.
 - `assets/`, `icon.svg`, `icon_generator.py`: editable artwork and generated icons.
 - `build_portable.py`: creates the root executable and its `_internal/` directory.
@@ -18,7 +19,7 @@ Regression tests live in `tests/`. Runtime models, personal configuration, logs,
 
 ## Build, Test, and Development Commands
 
-Use Windows PowerShell and Python 3.13, the verified interpreter version.
+Use Windows PowerShell and Python 3.13 or 3.14, the verified interpreter versions.
 
 - `python -m venv .venv`: create the local environment.
 - `.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt`: install runtime and packaging dependencies.
@@ -36,7 +37,7 @@ Use four-space indentation, UTF-8, `snake_case` functions/modules, `PascalCase` 
 
 ## Testing Guidelines
 
-Use standard-library `unittest`, `test_*.py` files, and `test_<behavior>` methods. No coverage percentage is enforced. Add focused regressions for bugs and races. Mock microphone capture, network downloads, OS key injection, and interactive clipboard access. Native clipboard checks must remain isolated from the user's desktop.
+Use standard-library `unittest`, `test_*.py` files, and `test_<behavior>` methods. No coverage percentage is enforced. Add focused regressions for bugs and races. Mock microphone capture, network downloads, OS key injection, and interactive clipboard access. Hotkey tests register only unusual combinations (`ctrl+alt+shift+f23`/`f24`) and simulate presses by posting `WM_HOTKEY`. Native clipboard checks must remain isolated from the user's desktop.
 
 ## Commit & Pull Request Guidelines
 

@@ -167,3 +167,16 @@ Diferențele de WER vin mai ales dintr-un singur clip, unde diacriticele dispar 
 **Verificări.** 106 teste trecute, verificarea nativă a clipboardului trecută. Executabilul a încărcat `medium` pe Vulkan pe RX 6800 XT. Detectarea Claude a fost verificată pe ferestrele reale deschise, iar culorile panoului pe ecran.
 
 **Limite.** CUDA nu a rulat pe o placă NVIDIA reală, iar `Install-CUDA-Libs.ps1` a fost încercat doar cu arhive de probă. Comportamentul cu memoria video plină nu este testat. O lipire pierdută într-o fereastră fără câmp de text nu poate fi detectată; textul se recuperează din **⌄**. Aplicația desktop Claude a fost verificată doar prin teste cu simulări.
+## PuTTY, text fără diacritice și shortcut prin RegisterHotKey
+
+Utilizatorul a raportat că dictarea nu ajungea într-o sesiune Claude din tmux, deschisă prin PuTTY pe un server. Fereastra PuTTY are clasa `PuTTY`, care nu era în lista de terminale, așa că textul mergea prin clipboard și `Ctrl+V`. PuTTY nu lipește la `Ctrl+V`: trimite serverului octetul `0x16`. `PuTTY` și `KiTTY` sunt acum terminale și primesc introducere Unicode directă. La testul utilizatorului, inserarea în tmux prin PuTTY a funcționat.
+
+Pentru servere fără UTF-8, setarea **Scrie fără diacritice** (`strip_diacritics`, dezactivată implicit) transformă doar textul tastat în ASCII: litere cu diacritice în litera de bază, inclusiv variantele cu sedilă, iar ghilimelele tipografice, liniile de pauză, `…` și spațiul neseparabil în echivalente ASCII. Istoricul din **⌄** și recuperarea păstrează transcrierea originală.
+
+După reconstruirea executabilului, F9 nu mai pornea dictarea, deși butonul funcționa. Jurnalul nu mai conținea „Shortcut dictare primit”, iar un F9 sintetic trimis spre Notepad nu a ajuns la instanța pornită, în timp ce un proces nou cu aceeași bibliotecă îl primea. Shortcutul folosea hookul low-level din `keyboard 0.13.5`, care rulează Python pentru fiecare tastă din sistem. Windows elimină fără notificare un astfel de hook dacă depășește `LowLevelHooksTimeout`, de exemplu cât procesul este ocupat; shortcutul rămâne mort până la repornire. Modificările pentru PuTTY nu atingeau shortcutul; problema ținea de mecanism.
+
+`hotkey.py` înregistrează acum shortcutul cu `RegisterHotKey` și `MOD_NOREPEAT`, pe un fir propriu cu buclă de mesaje. `WM_HOTKEY` nu cere un răspuns în timp limitat, deci nu poate expira. Combinația nouă se înregistrează înaintea eliberării celei vechi; o combinație ocupată de altă aplicație este refuzată cu mesaj în setări, iar la pornire se revine la F9. O excepție în handler este jurnalizată fără a opri bucla. Dependența `keyboard` a fost eliminată.
+
+**Verificări.** 156 de teste trecute, inclusiv înregistrare reală, conflict, eliberare și mesaje `WM_HOTKEY` simulate pe combinații neobișnuite. Executabilul reconstruit a răspuns la F9 trimis spre o fereastră Notepad de test.
+
+**Limite.** Detectarea Claude nu vede procesele de pe server, deci panoul rămâne violet în PuTTY. Diacriticele în PuTTY depind de setarea UTF-8 a sesiunii și de `locale` pe server. Cu Enter automat activ, pauza de 0,2 s dinaintea tastei Enter nu a fost verificată pe conexiuni SSH lente. Inserarea într-o fereastră PuTTY pornită ca Administrator rămâne blocată de UAC.

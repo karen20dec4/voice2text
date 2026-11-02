@@ -13,11 +13,15 @@ Utilitar Windows de dictare vocală în română și engleză, cu transcriere lo
 
 Panoul poate fi mutat prin tragere din orice zonă, inclusiv de pe butoane și pictograme. Un click simplu păstrează acțiunea butonului. Meniul **⌄** afișează microfonul, modelul, limba și diagnosticul complet; rotița deschide setările, iar **×** închide aplicația (cere confirmare doar în timpul unei dictări). Click pe pictograma din tray arată sau ascunde panoul; dictarea din tray se pornește explicit din meniu.
 
-În terminale (consola Windows, Windows Terminal, ConEmu, mintty), inclusiv în sesiunile Claude Code CLI, textul este tastat direct prin Unicode: `Ctrl+V` nu lipește într-o aplicație CLI în mod raw din consola clasică. Fiecare dictare merge în fereastra activă la pornirea ei, deci poți folosi oricâte sesiuni. Dacă treci în altă fereastră în timpul dictării, frazele așteaptă și nu îți fură focusul; ele ajung în fereastra inițială când revii sau când oprești dictarea. Dacă focusul nu poate fi readus, textul încă neinserat este oferit pentru recuperare.
+Shortcutul este înregistrat la Windows prin `RegisterHotKey`, deci funcționează în orice fereastră neelevată și nu se dezactivează singur cât timp aplicația rulează. Dacă altă aplicație folosește deja combinația, setările refuză salvarea cu un mesaj. La pornire, un shortcut ocupat revine la F9; dacă și F9 este ocupat, dictarea pornește doar din panou, iar motivul apare în jurnal.
+
+În terminale (consola Windows, Windows Terminal, ConEmu, mintty, PuTTY, KiTTY), inclusiv în sesiunile Claude Code CLI locale sau pe un server prin SSH și tmux, textul este tastat direct prin Unicode: `Ctrl+V` nu lipește într-o aplicație CLI în mod raw din consola clasică, iar PuTTY îl trimite serverului ca `^V`. Fiecare dictare merge în fereastra activă la pornirea ei, deci poți folosi oricâte sesiuni. Dacă treci în altă fereastră în timpul dictării, frazele așteaptă și nu îți fură focusul; ele ajung în fereastra inițială când revii sau când oprești dictarea. Dacă focusul nu poate fi readus, textul încă neinserat este oferit pentru recuperare.
 
 În celelalte aplicații, textul folosește o lipire protejată când clipboardul poate fi restaurat. Dacă ai copiat o captură de ecran sau fișiere, introducerea Unicode păstrează clipboardul intact. Suportul depinde de aplicația țintă; ferestrele cu privilegii mai mari pot bloca introducerea. Erorile oferă transcrierea pentru recuperare manuală.
 
-Panoul devine violet deschis când dictarea nu merge într-o fereastră Claude (Claude Code în terminal sau aplicația Claude). Textul este trimis și acolo, dar o lipire într-o fereastră fără câmp de text se pierde fără nicio eroare, așa că verifică destinația în meniul **⌄**, pe rândul **Trimit în**. Ultimele 10 transcrieri rămân în același meniu până închizi aplicația; un click deschide textul, cu buton de copiere. Ele stau doar în memorie, nu pe disc.
+Panoul devine violet deschis când dictarea nu merge într-o fereastră Claude (Claude Code în terminal sau aplicația Claude). Textul este trimis și acolo, dar o lipire într-o fereastră fără câmp de text se pierde fără nicio eroare, așa că verifică destinația în meniul **⌄**, pe rândul **Trimit în**. Ultimele 10 transcrieri rămân în același meniu până închizi aplicația; un click deschide textul, cu buton de copiere. Ele stau doar în memorie, nu pe disc. Claude pornit pe un server prin PuTTY nu poate fi recunoscut din Windows, deci acolo panoul rămâne violet deși textul ajunge corect.
+
+Pentru diacritice într-o sesiune PuTTY, setează **Window → Translation → Remote character set: UTF-8**, iar pe server un `locale` UTF-8. Pe un server fără UTF-8, bifează în setări **Scrie fără diacritice**: textul tastat devine ASCII (`ă`→`a`, `ș`→`s`, ghilimelele „” devin `"`, `…` devine `...`). Istoricul și recuperarea păstrează transcrierea originală. Opțiunea se aplică în toate ferestrele, așa că dezactiveaz-o când revii la aplicații cu diacritice.
 
 Ieși normal cu **×** sau din meniul tray pentru eliberarea resurselor. `Stop-Voice2Text.bat` este o oprire forțată pentru instanțele din acest folder.
 
@@ -60,6 +64,8 @@ Setarea **Procesare** alege între **GPU** și **CPU**, iar **Model Whisper** r�
 
 Vulkan folosește `gpu/voice2text_whisper.dll` și modele comprimate în `models/ggml/`, descărcate la prima utilizare: `medium-q5_0` are 514 MB. `Build-GPU-Engine.bat` compilează DLL-ul (necesită Visual Studio Build Tools); păstrează `gpu/` lângă executabil.
 
+Pe un Mac cu Boot Camp, driverul AMD instalat de Apple poate oferi doar Vulkan 1.1, iar whisper.cpp cere Vulkan 1.2 (`ggml_vulkan: Error: Vulkan 1.2 required.` în jurnal, apoi rulare pe CPU). Driverul AMD Boot Camp oficial (Unified Driver R6.4, 21.30.45.22, de pe pagina AMD „Apple Boot Camp”) aduce Vulkan 1.2 pe Radeon Pro 575.
+
 Pentru CUDA, rulează o dată `.\Install-CUDA-Libs.ps1` (circa 1,3 GB), apoi repornește aplicația. Această cale nu a fost rulată încă pe o placă NVIDIA reală.
 
 Timpi măsurați pe RX 6800 XT și Ryzen 9 5950X, cu modelul `medium`, pentru o frază de 4 s:
@@ -70,11 +76,18 @@ Timpi măsurați pe RX 6800 XT și Ryzen 9 5950X, cu modelul `medium`, pentru o 
 | CPU, 8 fire (setarea actuală) | 6,1 s |
 | GPU Vulkan, `medium-q5_0` | 1,4 s |
 
+Pe un iMac 2017 (i7-7700, Radeon Pro 575), pentru o frază de 5,3 s:
+
+| Model | CPU, 4 fire | GPU Vulkan |
+| --- | --- | --- |
+| `small` | 2,4 s | 1,5 s |
+| `medium` | 6,9 s | 3,0 s |
+
 Modelul ocupă circa 870 MB de memorie video cât timp aplicația este deschisă. Pornește aplicația înainte de a încărca modele mari în LM Studio: comportamentul cu memoria video plină nu a fost testat.
 
 ## Dezvoltare și build
 
-Mediu verificat: Windows 10 x64 și Python 3.13. Windows 11 trebuie verificat pe sistemul țintă.
+Mediu verificat: Windows 10 x64 cu Python 3.13 și Python 3.14. Windows 11 trebuie verificat pe sistemul țintă.
 
 ```powershell
 python -m venv .venv

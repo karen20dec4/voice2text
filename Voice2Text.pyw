@@ -13,7 +13,6 @@ import win32gui
 import win32con
 from PIL import Image
 import pystray
-import keyboard
 import pyperclip
 import customtkinter as ctk
 
@@ -22,7 +21,8 @@ from audio_recorder import AudioRecorder
 from audio_meter import AudioMeter
 from ui_controls import ImageButton
 from transcriber import WhisperTranscriber
-from injector import WindowInjector
+from injector import WindowInjector, strip_diacritics
+from hotkey import GlobalHotkey
 from live_transcription import LiveTranscription
 from settings_window import SettingsWindow
 
@@ -102,9 +102,13 @@ class Voice2TextApp:
         try:
             self._setup_hotkey()
         except Exception:
-            logging.exception("Shortcut invalid; revenire la F9")
+            logging.exception("Shortcut invalid sau ocupat; revenire la F9")
             self.config["hotkey"] = "f9"
-            self._setup_hotkey()
+            try:
+                self._setup_hotkey()
+            except Exception:
+                # Another application owns F9; the panel button still works.
+                logging.exception("F9 este ocupat; dictarea pornește doar din panou")
         self._setup_tray()
         self._drain_ui_queue()
         self._refresh_audio_meter()
@@ -369,19 +373,13 @@ class Voice2TextApp:
 
     def _setup_hotkey(self, hotkey=None):
         hotkey = hotkey or self.config.get("hotkey", "f9")
-        if self.current_hotkey and getattr(self, "_hotkey_value", None) == hotkey:
+        if self.current_hotkey and self.current_hotkey.same_keys(hotkey):
+            self._hotkey_value = hotkey
             return
-        # Register first: an invalid replacement must not disable the old binding.
-        # keyboard 0.13.5's nonblocking release handler looks up an already-released
-        # key in its pressed-key table, so it can silently miss every KEY_UP.
-        handle = keyboard.add_hotkey(hotkey, self._hotkey_triggered,
-                                     suppress=True, trigger_on_release=True)
+        # Register first: an invalid or taken replacement must not disable the old binding.
+        handle = GlobalHotkey(hotkey, self._hotkey_triggered)
         if self.current_hotkey:
-            try:
-                keyboard.remove_hotkey(self.current_hotkey)
-            except Exception:
-                keyboard.remove_hotkey(handle)
-                raise
+            self.current_hotkey.stop()
         self.current_hotkey = handle
         self._hotkey_value = hotkey
 
@@ -432,6 +430,7 @@ class Voice2TextApp:
         target = self._recording_target
         language = settings.get("language", "ro")
         trailing_space = settings.get("add_trailing_space", True)
+        plain_text = settings.get("strip_diacritics", False)
 
         def transcribe(audio):
             return self.transcriber.transcribe(audio, language=language)
@@ -439,8 +438,10 @@ class Voice2TextApp:
         def insert(text, final):
             if final:
                 self._post_ui(self._set_processing_stage, "Inserez textul")
+            # Only the typed copy loses diacritics; history and recovery keep the transcript.
             self.injector.restore_and_inject(
-                text, auto_enter=final and settings.get("auto_enter", False),
+                strip_diacritics(text) if plain_text else text,
+                auto_enter=final and settings.get("auto_enter", False),
                 add_trailing_space=trailing_space, target_hwnd=target)
 
         def finished(text, error, uninserted):
@@ -623,7 +624,7 @@ class Voice2TextApp:
             pass
         try:
             if self.current_hotkey:
-                keyboard.remove_hotkey(self.current_hotkey)
+                self.current_hotkey.stop()
         except Exception:
             pass
         if getattr(self, "_ui_after_id", None) is not None:

@@ -89,7 +89,7 @@ class InjectorTests(unittest.TestCase):
     def test_terminals_get_unicode_input_because_raw_cli_ignores_ctrl_v(self):
         self.foreground.return_value = 123
         typed = self._accept_unicode()
-        for window_class in ("ConsoleWindowClass", "CASCADIA_HOSTING_WINDOW_CLASS"):
+        for window_class in ("ConsoleWindowClass", "CASCADIA_HOSTING_WINDOW_CLASS", "PuTTY", "KiTTY"):
             with self.subTest(window_class=window_class):
                 typed.clear()
                 self.window_class.return_value = window_class
@@ -98,6 +98,12 @@ class InjectorTests(unittest.TestCase):
                 self.user32.keybd_event.assert_not_called()
                 self.assertEqual(self.clipboard.data, {13: "original"})
                 self.assertEqual(self.clipboard.sequence, 1)
+
+    def test_strip_diacritics_covers_comma_and_cedilla_romanian_letters(self):
+        self.assertEqual(injector.strip_diacritics("ăâîșț ĂÂÎȘȚ şţ Şţ café"), "aaist AAIST st St cafe")
+
+    def test_strip_diacritics_turns_typographic_marks_into_ascii(self):
+        self.assertEqual(injector.strip_diacritics("„Da” – ‘bine’…\u00a0gata"), "\"Da\" - 'bine'... gata")
 
     def test_auto_enter_in_terminal_follows_typed_text(self):
         self.foreground.return_value = 123

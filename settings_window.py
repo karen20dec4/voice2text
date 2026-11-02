@@ -1,8 +1,8 @@
 import customtkinter as ctk
-import keyboard
 from tkinter import messagebox
 from config import save_config
 from audio_recorder import AudioRecorder
+from hotkey import parse_hotkey
 
 class SettingsWindow(ctk.CTkToplevel):
     def __init__(self, parent, current_config, on_save_callback=None):
@@ -124,7 +124,13 @@ class SettingsWindow(ctk.CTkToplevel):
 
         self.var_enter = ctk.BooleanVar(value=self.config.get("auto_enter", False))
         self.chk_enter = ctk.CTkCheckBox(content, text="Apasă automat tasta Enter după tastare", variable=self.var_enter)
-        self.chk_enter.pack(anchor="w", padx=pad_x, pady=(0, 20))
+        self.chk_enter.pack(anchor="w", padx=pad_x, pady=(0, 8))
+
+        self.var_strip = ctk.BooleanVar(value=self.config.get("strip_diacritics", False))
+        self.chk_strip = ctk.CTkCheckBox(
+            content, text="Scrie fără diacritice (ă→a, ș→s), pentru servere fără UTF-8",
+            variable=self.var_strip)
+        self.chk_strip.pack(anchor="w", padx=pad_x, pady=(0, 20))
 
         # Action buttons
         btn_frame = ctk.CTkFrame(content, fg_color="transparent")
@@ -157,13 +163,15 @@ class SettingsWindow(ctk.CTkToplevel):
         new_floating = self.var_floating.get()
         new_space = self.var_space.get()
         new_enter = self.var_enter.get()
+        new_strip = self.var_strip.get()
 
         new_config = self.config.copy()
         new_config.update(model_size=new_model, compute_device=new_compute, language=new_lang, device_index=new_mic,
                           hotkey=new_hotkey, floating_visible=new_floating,
-                          add_trailing_space=new_space, auto_enter=new_enter)
+                          add_trailing_space=new_space, auto_enter=new_enter,
+                          strip_diacritics=new_strip)
         try:
-            keyboard.parse_hotkey_combinations(new_hotkey)
+            parse_hotkey(new_hotkey)
             if self.on_save_callback:
                 self.on_save_callback(new_config)
             else:

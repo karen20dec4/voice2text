@@ -9,6 +9,8 @@ from unittest.mock import Mock, patch
 
 import numpy as np
 
+import hotkey as hotkey_module
+
 
 loader = importlib.machinery.SourceFileLoader("voice2text_app", str(Path(__file__).resolve().parents[1] / "Voice2Text.pyw"))
 spec = importlib.util.spec_from_loader(loader.name, loader)
@@ -93,13 +95,33 @@ class AppTests(unittest.TestCase):
         self.assertFalse(self.app._ui_queue.empty())
 
     def test_invalid_hotkey_keeps_existing_binding(self):
-        self.app.current_hotkey = "old binding"
-        with patch.object(app_module.keyboard, "add_hotkey", side_effect=ValueError("invalid")), patch.object(
-                app_module.keyboard, "remove_hotkey") as remove:
-            with self.assertRaises(ValueError):
-                self.app._setup_hotkey()
-        self.assertEqual(self.app.current_hotkey, "old binding")
-        remove.assert_not_called()
+        old = Mock()
+        old.same_keys.return_value = False
+        self.app.current_hotkey = old
+        with patch.object(app_module, "GlobalHotkey", side_effect=OSError("taken")):
+            with self.assertRaises(OSError):
+                self.app._setup_hotkey("ctrl+f9")
+        self.assertIs(self.app.current_hotkey, old)
+        old.stop.assert_not_called()
+
+    def test_new_hotkey_replaces_old_binding_after_registering(self):
+        old = Mock()
+        old.same_keys.return_value = False
+        self.app.current_hotkey = old
+        with patch.object(app_module, "GlobalHotkey") as hotkey_class:
+            self.app._setup_hotkey("ctrl+f9")
+        hotkey_class.assert_called_once_with("ctrl+f9", self.app._hotkey_triggered)
+        old.stop.assert_called_once()
+        self.assertIs(self.app.current_hotkey, hotkey_class.return_value)
+
+    def test_same_keys_spelled_differently_keep_the_registration(self):
+        old = Mock()
+        old.same_keys.return_value = True
+        self.app.current_hotkey = old
+        with patch.object(app_module, "GlobalHotkey") as hotkey_class:
+            self.app._setup_hotkey("control+f9")
+        hotkey_class.assert_not_called()
+        old.stop.assert_not_called()
 
     def test_delayed_reset_does_not_hide_active_recording(self):
         self.app.is_recording = True
@@ -111,30 +133,20 @@ class AppTests(unittest.TestCase):
         self.app.root.after.assert_not_called()
         self.assertFalse(self.app._ui_queue.empty())
 
-    def test_real_keyboard_dispatch_triggers_once_on_each_f9_release(self):
-        keyboard = app_module.keyboard
-        listener = keyboard._KeyboardListener()
-        with patch.object(keyboard._os_keyboard, "init"):
-            listener.init()
-        with patch.object(keyboard, "_listener", listener), patch.object(
-                listener, "start_if_necessary"), patch.object(keyboard, "_pressed_events", {}), patch.object(
-                keyboard, "_logically_pressed_keys", {}), patch.object(keyboard, "_hotkeys", {}), patch.object(
-                keyboard, "is_modifier", return_value=False), patch.object(
-                keyboard, "parse_hotkey_combinations", return_value=(((67,),),)):
-            self.app._start_recording = Mock(side_effect=lambda: setattr(self.app, "is_recording", True))
-            self.app._stop_recording_and_process = Mock(side_effect=lambda: setattr(self.app, "is_recording", False))
-            self.app._setup_hotkey()
-            for cycle in range(2):
-                for event_type in (keyboard.KEY_DOWN, keyboard.KEY_UP):
-                    event = keyboard.KeyboardEvent(event_type, 67, name="f9")
-                    listener.direct_callback(event)
-                    listener.pre_process_event(listener.queue.get_nowait())
-                self.assertEqual(self.app._ui_queue.qsize(), 1)
-                callback, args = self.app._ui_queue.get_nowait()
-                callback(*args)
-                self.assertEqual(self.app.is_recording, cycle == 0)
-            self.app._start_recording.assert_called_once()
-            self.app._stop_recording_and_process.assert_called_once()
+    def test_real_hotkey_messages_start_then_stop_dictation(self):
+        self.app._start_recording = Mock(side_effect=lambda: setattr(self.app, "is_recording", True))
+        self.app._stop_recording_and_process = Mock(side_effect=lambda: setattr(self.app, "is_recording", False))
+        # An unusual combination, so the test never collides with a real shortcut.
+        self.app._setup_hotkey("ctrl+alt+shift+f24")
+        self.addCleanup(self.app.current_hotkey.stop)
+        for cycle in range(2):
+            hotkey_module.user32.PostThreadMessageW(self.app.current_hotkey._thread_id,
+                                                    hotkey_module.WM_HOTKEY, 1, 0)
+            callback, args = self.app._ui_queue.get(timeout=2)
+            callback(*args)
+            self.assertEqual(self.app.is_recording, cycle == 0)
+        self.app._start_recording.assert_called_once()
+        self.app._stop_recording_and_process.assert_called_once()
 
     def test_close_releases_microphone_and_window_tracker(self):
         self.app.recorder = Mock()
@@ -247,11 +259,11 @@ class AppTests(unittest.TestCase):
         self.assertEqual(self.app.audio_meter.hotkey, "F8")
         self.app.audio_meter.set_message.assert_called_once_with("Model pregătit • F8: start / stop")
 
-    def run_dictation(self, settings=None):
+    def run_dictation(self, settings=None, text="Salut, lume!"):
         """One start/stop cycle whose whole audio arrives when recording stops."""
         self.app.config = dict(settings or {}, language="ro")
         self.app.transcriber = Mock()
-        self.app.transcriber.transcribe.return_value = "Salut, lume!"
+        self.app.transcriber.transcribe.return_value = text
         self.app.injector.get_target_window.return_value = 123
         self.app.recorder = Mock()
         self.app.recorder.take_audio.return_value = np.zeros(0, dtype=np.float32)
@@ -272,6 +284,11 @@ class AppTests(unittest.TestCase):
         self.assertEqual(self.app.transcriber.transcribe.call_args.kwargs["language"], "ro")
         self.app.injector.restore_and_inject.assert_called_once_with(
             "Salut, lume!", auto_enter=True, add_trailing_space=True, target_hwnd=123)
+
+    def test_strip_diacritics_setting_changes_only_the_typed_text(self):
+        self.run_dictation({"strip_diacritics": True}, text="Țara și mâncarea")
+        self.assertEqual(self.app.injector.restore_and_inject.call_args.args[0], "Tara si mancarea")
+        self.assertEqual(list(self.app.recent_texts), ["Țara și mâncarea"])
 
     def test_insertion_failure_preserves_transcript_and_clears_busy_on_ui_thread(self):
         self.app.injector.restore_and_inject.side_effect = RuntimeError("focus failed")

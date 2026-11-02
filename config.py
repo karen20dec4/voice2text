@@ -13,6 +13,7 @@ DEFAULT_CONFIG = {
     "device_index": None,          # None = default mic
     "auto_enter": False,           # press enter after typing
     "add_trailing_space": True,    # add space after dictated text
+    "strip_diacritics": False,     # type ă→a, ș→s, ...: for terminals/servers without UTF-8
     "window_x": 100,
     "window_y": 100,
     "floating_visible": True,

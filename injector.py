@@ -4,6 +4,7 @@ import logging
 import os
 import threading
 import time
+import unicodedata
 
 import win32con
 import win32gui
@@ -75,9 +76,25 @@ TERMINAL_WINDOW_CLASSES = frozenset({
     "CASCADIA_HOSTING_WINDOW_CLASS",
     "VirtualConsoleClass",
     "mintty",
+    # PuTTY sends Ctrl+V to the remote host instead of pasting (Shift+Insert does).
+    "PuTTY",
+    "KiTTY",
 })
 CLAUDE_PROCESS = "claude.exe"
 CLAUDE_CHECK_SECONDS = 1.0
+
+
+# Typographic marks Whisper emits, which a host without UTF-8 would garble too.
+PLAIN_PUNCTUATION = str.maketrans({"„": '"', "“": '"', "”": '"', "«": '"', "»": '"',
+                                   "‚": "'", "‘": "'", "’": "'", "–": "-", "—": "-",
+                                   "…": "...", "\u00a0": " "})
+
+
+def strip_diacritics(text):
+    """Replace accented letters by their base letter (ă→a, ș→s), for hosts without UTF-8."""
+    text = "".join(char for char in unicodedata.normalize("NFD", text)
+                   if not unicodedata.combining(char))
+    return unicodedata.normalize("NFC", text).translate(PLAIN_PUNCTUATION)
 
 
 def _process_table():
