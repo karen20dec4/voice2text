@@ -6,6 +6,7 @@ Voice2Text is a Windows desktop dictation utility using CustomTkinter and faster
 
 - `Voice2Text.pyw`: application lifecycle, floating controls, tray menu, and UI dispatch.
 - `audio_recorder.py`, `transcriber.py`: capture and transcription (CUDA, then Vulkan, then CPU).
+- `live_transcription.py`: cuts a running dictation at pauses, then transcribes and inserts each segment on its own thread.
 - `gpu_engine.py`, `native/`, `build_gpu_engine.py`: Vulkan transcription through a small DLL over whisper.cpp.
 - `audio_meter.py`, `ui_controls.py`: compact audio display and image buttons.
 - `injector.py`, `clipboard_guard.py`: target tracking and protected insertion. Terminals always get direct Unicode input, because a raw-mode CLI on a classic console receives `Ctrl+V` as byte `0x16`.
@@ -31,7 +32,7 @@ Use Windows PowerShell and Python 3.13, the verified interpreter version.
 
 ## Coding Style & Naming Conventions
 
-Use four-space indentation, UTF-8, `snake_case` functions/modules, `PascalCase` classes, and uppercase constants. Preserve Romanian interface text. No formatter or linter is configured. Keep Tk operations on the main thread; workers use `_post_ui`. Recording starts only from an explicit user action, never at launch or from the tray icon's default click. Resolve model and log paths relative to the application, never a contributor's home directory.
+Use four-space indentation, UTF-8, `snake_case` functions/modules, `PascalCase` classes, and uppercase constants. Preserve Romanian interface text. No formatter or linter is configured. Keep Tk operations on the main thread; workers use `_post_ui`. Recording starts only from an explicit user action, never at launch or from the tray icon's default click. Text inserted during a dictation must not take focus from another window, and auto-Enter fires only once, when the dictation ends. Resolve model and log paths relative to the application, never a contributor's home directory.
 
 ## Testing Guidelines
 

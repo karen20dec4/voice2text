@@ -15,12 +15,13 @@ class AudioMeter(ctk.CTkFrame):
         self.hotkey = hotkey
         self.latest_status = AudioStatus()
         self.message = f"{hotkey}: pornește / oprește dictarea"
-        self.canvas = tk.Canvas(self, width=96, height=14, bg="#141b22",
+        self.canvas = tk.Canvas(self, width=86, height=14, bg="#141b22",
                                 highlightthickness=0, borderwidth=0)
-        self.canvas.pack(side="left", padx=(8, 4), pady=1)
+        # Lines the bars up with the Dictează button, 20 px from the panel's edge.
+        self.canvas.pack(side="left", padx=(self._apply_widget_scaling(18), 4), pady=1)
         self.bars = [self.canvas.create_line(2 + i * 4.8, 3, 2 + i * 4.8, 11,
                                              fill="#343c46", width=3, capstyle="round")
-                     for i in range(20)]
+                     for i in range(18)]
         self._status_font = ctk.CTkFont(size=10)
         self.status_label = ctk.CTkLabel(self, text=f"Gata • {hotkey}",
                                        font=self._status_font, text_color="#aaaab2",

@@ -78,6 +78,27 @@ class RecorderTests(unittest.TestCase):
         self.assertFalse(recorder.is_recording)
         self.assertIsNone(recorder._stream)
 
+    def test_audio_taken_during_recording_is_not_returned_again(self):
+        recorder = AudioRecorder()
+        with patch("audio_recorder.sd.InputStream", return_value=Mock()):
+            recorder.start()
+            self.assertEqual(len(recorder.take_audio()), 0)
+            recorder._audio_callback(np.array([[0.1], [0.2]], dtype=np.float32), 2, None, None)
+            recorder._audio_callback(np.array([[0.3]], dtype=np.float32), 1, None, None)
+            np.testing.assert_allclose(recorder.take_audio(), [0.1, 0.2, 0.3])
+            self.assertEqual(len(recorder.take_audio()), 0)
+            recorder._audio_callback(np.array([[0.4]], dtype=np.float32), 1, None, None)
+            np.testing.assert_allclose(recorder.stop(), [0.4])
+        self.assertEqual(recorder.get_status().samples, 4)
+
+    def test_stop_after_all_audio_was_taken_returns_nothing(self):
+        recorder = AudioRecorder()
+        with patch("audio_recorder.sd.InputStream", return_value=Mock()):
+            recorder.start()
+            recorder._audio_callback(np.array([[0.1]], dtype=np.float32), 1, None, None)
+            recorder.take_audio()
+            self.assertIsNone(recorder.stop())
+
     def test_callback_after_stop_does_not_leak_into_next_recording(self):
         recorder = AudioRecorder()
         recorder._audio_callback(np.ones((2, 1)), 2, None, None)

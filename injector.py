@@ -186,13 +186,31 @@ class WindowInjector:
             pass
         self._tracker_thread.join(timeout=0.5)
 
+    @staticmethod
+    def _modifier_held():
+        return any(user32.GetAsyncKeyState(key) & 0x8000 for key in (0x10, 0x11, 0x12, 0x5B, 0x5C))
+
     def _wait_for_modifiers(self, hwnd):
         for _ in range(50):
             self._check_target(hwnd)
-            if not any(user32.GetAsyncKeyState(key) & 0x8000 for key in (0x10, 0x11, 0x12, 0x5B, 0x5C)):
+            if not self._modifier_held():
                 return
             time.sleep(0.02)
         raise RuntimeError("Eliberează tastele Shift, Ctrl, Alt și Windows înainte de inserare")
+
+    def can_insert_now(self, hwnd):
+        # During a dictation text must not pull the user out of another window.
+        # Our own panel is fine: a click on it only moved focus away from the target.
+        try:
+            foreground = win32gui.GetForegroundWindow()
+            if foreground != hwnd:
+                _, owner = win32process.GetWindowThreadProcessId(foreground)
+                if owner != os.getpid():
+                    return False
+            return not self._modifier_held()
+        except Exception:
+            logging.debug("Nu pot verifica fereastra activă", exc_info=True)
+            return False
 
     def _check_target(self, hwnd):
         if self._stopped.is_set():
@@ -250,9 +268,10 @@ class WindowInjector:
             self._inject_unicode(text, hwnd)
 
     def restore_and_inject(self, text, auto_enter=False, add_trailing_space=True, target_hwnd=None):
-        if not text:
+        # Empty text with auto_enter closes a dictation already inserted segment by segment.
+        if not text and not auto_enter:
             return
-        if add_trailing_space and not text.endswith((" ", "\n")):
+        if text and add_trailing_space and not text.endswith((" ", "\n")):
             text += " "
         with self._injection_lock:
             hwnd = target_hwnd if target_hwnd is not None else self.last_target_hwnd
@@ -276,7 +295,7 @@ class WindowInjector:
             terminal = self._is_terminal(hwnd)
             if terminal:
                 self._inject_unicode(text, hwnd)
-            else:
+            elif text:
                 self._paste_or_type(text, hwnd)
             if auto_enter:
                 # A CLI could merge an immediate Enter into the typed text burst.

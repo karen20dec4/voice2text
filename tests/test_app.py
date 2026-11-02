@@ -7,6 +7,8 @@ import threading
 import unittest
 from unittest.mock import Mock, patch
 
+import numpy as np
+
 
 loader = importlib.machinery.SourceFileLoader("voice2text_app", str(Path(__file__).resolve().parents[1] / "Voice2Text.pyw"))
 spec = importlib.util.spec_from_loader(loader.name, loader)
@@ -155,6 +157,26 @@ class AppTests(unittest.TestCase):
         self.app._on_dictate_click()
         self.app.toggle_dictation.assert_not_called()
 
+    def test_close_button_exits_when_idle_without_asking(self):
+        self.app.exit_app = Mock()
+        with patch.object(app_module.messagebox, "askyesno") as ask:
+            self.app._on_close_click()
+        ask.assert_not_called()
+        self.app.exit_app.assert_called_once_with()
+
+    def test_close_button_keeps_running_dictation_unless_confirmed(self):
+        self.app.exit_app = Mock()
+        for state in ("is_recording", "is_processing"):
+            setattr(self.app, state, True)
+            with patch.object(app_module.messagebox, "askyesno", return_value=False):
+                self.app._on_close_click()
+            setattr(self.app, state, False)
+        self.app.exit_app.assert_not_called()
+        self.app.is_recording = True
+        with patch.object(app_module.messagebox, "askyesno", return_value=True):
+            self.app._on_close_click()
+        self.app.exit_app.assert_called_once_with()
+
     def test_second_instance_does_not_register_another_hotkey(self):
         with patch.object(app_module.win32event, "CreateMutex"), patch.object(
                 app_module.win32api, "GetLastError", return_value=183), patch.object(
@@ -189,10 +211,10 @@ class AppTests(unittest.TestCase):
         self.app.injector = Mock()
         self.app.recorder = Mock()
         self.app.btn_dictate.set_recording.reset_mock()
-        self.app._start_recording()
-        self.app.btn_dictate.set_recording.assert_called_once_with(True)
-        self.app.btn_dictate.set_recording.reset_mock()
-        with patch.object(app_module.threading, "Thread"):
+        with patch.object(app_module, "LiveTranscription"):
+            self.app._start_recording()
+            self.app.btn_dictate.set_recording.assert_called_once_with(True)
+            self.app.btn_dictate.set_recording.reset_mock()
             self.app._stop_recording_and_process()
         self.app.btn_dictate.set_recording.assert_called_once_with(False)
 
@@ -225,29 +247,62 @@ class AppTests(unittest.TestCase):
         self.assertEqual(self.app.audio_meter.hotkey, "F8")
         self.app.audio_meter.set_message.assert_called_once_with("Model pregătit • F8: start / stop")
 
-    def test_insertion_failure_preserves_transcript_and_clears_busy_on_ui_thread(self):
-        self.app._session_config = {"language": "ro"}
-        self.app._recording_target = 123
-        self.app.recorder = Mock()
+    def run_dictation(self, settings=None):
+        """One start/stop cycle whose whole audio arrives when recording stops."""
+        self.app.config = dict(settings or {}, language="ro")
         self.app.transcriber = Mock()
         self.app.transcriber.transcribe.return_value = "Salut, lume!"
-        self.app.injector = Mock()
-        self.app.injector.restore_and_inject.side_effect = RuntimeError("focus failed")
-        self.app._show_uninserted_text = Mock()
-
-        def start_immediately(*, target, **kwargs):
-            return Mock(start=target)
-
-        with self.assertLogs(level="ERROR"), patch.object(app_module.threading, "Thread", side_effect=start_immediately):
-            self.app._stop_recording_and_process()
+        self.app.injector.get_target_window.return_value = 123
+        self.app.recorder = Mock()
+        self.app.recorder.take_audio.return_value = np.zeros(0, dtype=np.float32)
+        self.app.recorder.stop.return_value = np.ones(160, dtype=np.float32)
+        self.app._start_recording()
+        self.app._stop_recording_and_process()
         self.assertTrue(self.app.is_processing)
+        self.app._live.join(2)
         while not self.app._ui_queue.empty():
             callback, args = self.app._ui_queue.get_nowait()
             callback(*args)
+
+    def test_dictation_is_transcribed_and_inserted_in_the_session_window(self):
+        self.run_dictation({"auto_enter": True})
+        self.assertFalse(self.app.is_processing)
+        self.assertEqual(list(self.app.recent_texts), ["Salut, lume!"])
+        self.app.transcriber.transcribe.assert_called_once()
+        self.assertEqual(self.app.transcriber.transcribe.call_args.kwargs["language"], "ro")
+        self.app.injector.restore_and_inject.assert_called_once_with(
+            "Salut, lume!", auto_enter=True, add_trailing_space=True, target_hwnd=123)
+
+    def test_insertion_failure_preserves_transcript_and_clears_busy_on_ui_thread(self):
+        self.app.injector.restore_and_inject.side_effect = RuntimeError("focus failed")
+        self.app._show_uninserted_text = Mock()
+        with self.assertLogs(level="ERROR"):
+            self.run_dictation()
         self.assertFalse(self.app.is_processing)
         self.assertEqual(self.app.last_transcription, "Salut, lume!")
         self.app._show_uninserted_text.assert_called_once_with("Salut, lume!", "focus failed")
         self.assertEqual(self.app.injector.restore_and_inject.call_args.kwargs["target_hwnd"], 123)
+
+    def test_failed_recorder_stop_is_reported_after_the_session_ends(self):
+        self.app._live = Mock()
+        self.app.recorder = Mock()
+        self.app.recorder.stop.side_effect = OSError("device lost")
+        with self.assertLogs(level="ERROR"):
+            self.app._stop_recording_and_process()
+        self.app._live.finish.assert_called_once_with(error="device lost")
+
+    def test_error_shows_only_the_text_missing_from_the_target(self):
+        self.app._show_uninserted_text = Mock()
+        self.app._finish_processing("Primul. Al doilea.", "focus failed", "Al doilea.")
+        self.app._show_uninserted_text.assert_called_once_with("Al doilea.", "focus failed")
+        self.assertEqual(list(self.app.recent_texts), ["Primul. Al doilea."])
+
+    def test_error_after_everything_was_inserted_offers_no_recovery_window(self):
+        self.app._show_uninserted_text = Mock()
+        with patch.object(app_module.messagebox, "showerror") as showerror:
+            self.app._finish_processing("Primul.", "transcriere eșuată", "")
+        self.app._show_uninserted_text.assert_not_called()
+        showerror.assert_called_once()
 
 
 class GuiSmokeTests(unittest.TestCase):
@@ -309,13 +364,19 @@ class GuiSmokeTests(unittest.TestCase):
                 app.root.attributes("-alpha", 0)
                 app.root.deiconify()
                 app.root.update()
+                left_edge = app.pill_frame.winfo_rootx()
+                self.assertLessEqual(abs(app.audio_meter.canvas.winfo_rootx() - left_edge - 20 * scale), 1)
+                self.assertLessEqual(abs(app.audio_meter.canvas.winfo_rootx() - app.btn_dictate.winfo_rootx()), 1)
                 gear_action = Mock()
                 dictate_action = Mock()
+                close_action = Mock()
                 app.btn_gear.configure(command=gear_action)
                 app.btn_dictate.configure(command=dictate_action)
+                app.btn_close.configure(command=close_action)
                 with patch.object(app, "_persist_config"):
                     for widget in (app.audio_meter.canvas, app.audio_meter.status_label._label,
-                                   app.btn_gear._canvas, app.btn_info._canvas, app.pill_frame._canvas,
+                                   app.btn_gear._canvas, app.btn_close._canvas, app.btn_info._canvas,
+                                   app.pill_frame._canvas,
                                    app.btn_dictate._canvas, app.btn_dictate._image_label,
                                    app.drag_handle._label):
                         # Prevent the info button's ordinary action during this
@@ -333,6 +394,7 @@ class GuiSmokeTests(unittest.TestCase):
                         self.assertEqual((app.root.winfo_x(), app.root.winfo_y()), (old_x + 20, old_y + 10))
                     gear_action.assert_not_called()
                     dictate_action.assert_not_called()
+                    close_action.assert_not_called()
                     # Prove a simple click still reaches the button action.
                     app.btn_gear._canvas.event_generate("<Enter>")
                     app.btn_gear._canvas.event_generate("<ButtonPress-1>", x=5, y=5)

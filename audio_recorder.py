@@ -55,6 +55,14 @@ class AudioRecorder:
                 self._callback_warnings += bool(status)
                 self._last_callback_at = time.monotonic()
 
+    def take_audio(self):
+        """Return the samples captured since the previous call, as a 1D array."""
+        with self._lock:
+            frames, self._frames = self._frames, []
+        if not frames:
+            return np.zeros(0, dtype=np.float32)
+        return np.concatenate(frames, axis=0).flatten()
+
     def start(self, device_index=None):
         if self.is_recording:
             return

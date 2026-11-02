@@ -23,6 +23,7 @@ from audio_meter import AudioMeter
 from ui_controls import ImageButton
 from transcriber import WhisperTranscriber
 from injector import WindowInjector
+from live_transcription import LiveTranscription
 from settings_window import SettingsWindow
 
 SHOW_WINDOW_EVENT = "Local\\Voice2Text.Show"
@@ -50,6 +51,7 @@ class Voice2TextApp:
         self._ui_after_id = None
         self._recording_target = None
         self._session_config = None
+        self._live = None
         self.last_transcription = ""
         # A paste into a window without a text field fails silently. Kept in
         # memory only: transcriptions are never written to disk.
@@ -157,14 +159,15 @@ class Voice2TextApp:
                                        width=10, height=24, cursor="fleur")
         self.drag_handle.pack(side="left", padx=(0, 3))
 
-        def control(text, image, width, command):
+        def control(text, image, width, command, padx=1):
             button = ImageButton(controls, text=text, icon=image, width=width, command=command)
-            button.pack(side="left", padx=2, pady=1)
+            button.pack(side="left", padx=padx, pady=1)
             return button
 
-        self.btn_dictate = control("Dictează", "mic", 112, self._on_dictate_click)
+        self.btn_dictate = control("Dictează", "mic", 98, self._on_dictate_click, padx=2)
         self.btn_info = control("", "chevron", 24, self._show_info_dropdown)
         self.btn_gear = control("", "settings", 24, self.open_settings)
+        self.btn_close = control("", "close", 24, self._on_close_click)
         self.audio_meter = AudioMeter(self.pill_frame, hotkey=self.config.get("hotkey", "f9").upper())
         self.audio_meter.pack(fill="x", padx=2, pady=(0, 4))
         self.audio_meter.status_label.configure(cursor="hand2")
@@ -280,6 +283,14 @@ class Voice2TextApp:
         if not self._dragging:
             self.toggle_dictation()
 
+    def _on_close_click(self):
+        # The button sits beside the gear: a stray click must not lose a dictation.
+        if ((self.is_recording or self.is_processing) and not messagebox.askyesno(
+                "Închide Voice2Text", "Dictarea este în curs și textul netranscris se pierde. Închid aplicația?",
+                parent=self.root)):
+            return
+        self.exit_app()
+
     def _on_right_click(self, event):
         import tkinter as tk
         m = tk.Menu(self.root, tearoff=0)
@@ -391,7 +402,7 @@ class Voice2TextApp:
 
     def _start_recording(self):
         if not self.transcriber.is_ready():
-            self.btn_dictate.configure(text="Așteaptă AI…", fg_color="#f9e2af", text_color="#11111b")
+            self.btn_dictate.configure(text="Aștept AI…", fg_color="#f9e2af", text_color="#11111b")
             return
 
         try:
@@ -401,6 +412,8 @@ class Voice2TextApp:
             self._session_config = self.config.copy()
             device_idx = self.config.get("device_index")
             self.recorder.start(device_index=device_idx)
+            self._live = self._create_live_transcription()
+            self._live.start()
             self.is_recording = True
             self.btn_dictate.set_recording(True)
             self.btn_dictate.configure(
@@ -413,6 +426,30 @@ class Voice2TextApp:
             self.btn_dictate.configure(text="Microfon?", fg_color="#f38ba8")
             messagebox.showerror("Nu pot porni dictarea", str(e), parent=self.root)
             self.root.after(2000, self._reset_button)
+
+    def _create_live_transcription(self):
+        settings = self._session_config
+        target = self._recording_target
+        language = settings.get("language", "ro")
+        trailing_space = settings.get("add_trailing_space", True)
+
+        def transcribe(audio):
+            return self.transcriber.transcribe(audio, language=language)
+
+        def insert(text, final):
+            if final:
+                self._post_ui(self._set_processing_stage, "Inserez textul")
+            self.injector.restore_and_inject(
+                text, auto_enter=final and settings.get("auto_enter", False),
+                add_trailing_space=trailing_space, target_hwnd=target)
+
+        def finished(text, error, uninserted):
+            self._post_ui(self._finish_processing, text, error, uninserted)
+
+        return LiveTranscription(
+            self.recorder.take_audio, transcribe, insert,
+            lambda: self.injector.can_insert_now(target), finished,
+            separator="" if trailing_space else " ")
 
     def _stop_recording_and_process(self):
         self.is_recording = False
@@ -428,36 +465,13 @@ class Voice2TextApp:
         )
 
         try:
-            audio_data = self.recorder.stop()
+            self._live.finish(self.recorder.stop())
         except Exception as error:
             logging.exception("Eroare oprire înregistrare")
-            self._finish_processing("", str(error))
-            return
-        settings = self._session_config or self.config.copy()
-        target = self._recording_target
+            self._live.finish(error=str(error))
 
-        def worker():
-            text = ""
-            try:
-                started = time.monotonic()
-                logging.info("Transcriere începută")
-                lang = settings.get("language", "ro")
-                text = self.transcriber.transcribe(audio_data, language=lang)
-                logging.info("Transcriere încheiată: %.2f s, caractere=%s", time.monotonic() - started, len(text))
-                if text and not self._closing.is_set():
-                    self._post_ui(self._set_processing_stage, "Inserez textul")
-                    self.injector.restore_and_inject(
-                        text, auto_enter=settings.get("auto_enter", False),
-                        add_trailing_space=settings.get("add_trailing_space", True), target_hwnd=target)
-                    logging.info("Inserare finalizată")
-                self._post_ui(self._finish_processing, text, None)
-            except Exception as error:
-                logging.exception("Eroare procesare dictare")
-                self._post_ui(self._finish_processing, text, str(error))
-
-        threading.Thread(target=worker, daemon=True).start()
-
-    def _finish_processing(self, text, error):
+    def _finish_processing(self, text, error, uninserted=None):
+        uninserted = text if uninserted is None else uninserted
         self.is_processing = False
         self.last_transcription = text
         if text:
@@ -465,8 +479,8 @@ class Voice2TextApp:
         if error:
             self.audio_meter.set_message(f"Eroare: {error}", "#f38ba8")
             self.btn_dictate.configure(text="Eroare", fg_color="#f38ba8", text_color="#11111b")
-            if text:
-                self._show_uninserted_text(text, error)
+            if uninserted:
+                self._show_uninserted_text(uninserted, error)
             else:
                 messagebox.showerror("Eroare dictare", error, parent=self.root)
         elif text and self._outside_claude:

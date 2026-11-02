@@ -2,24 +2,39 @@
 
 <img src="icon.png" width="88" alt="Voice2Text">
 
-Utilitar Windows de dictare vocală în română și engleză, cu transcriere locală Whisper pe placa video sau pe procesor. Panoul compact are două rânduri, butoane cu imagini transparente, indicator audio de 96 px și un meniu cu informații suplimentare.
+Utilitar Windows de dictare vocală în română și engleză, cu transcriere locală Whisper pe placa video sau pe procesor. Panoul compact are două rânduri, butoane cu imagini transparente, indicator audio de 86 px și un meniu cu informații suplimentare.
 
 ## Utilizare
 
 1. Pornește `Voice2Text.exe` sau `Start-Voice2Text.bat`. Se deschide doar panoul; înregistrarea nu pornește singură. O a doua lansare afișează panoul existent.
 2. Așteaptă încărcarea modelului și selectează câmpul în care vrei textul.
 3. Apasă **F9** sau **Dictează**, vorbește, apoi oprește la fel. Butonul este roșu deschis cât timp înregistrează.
-4. Așteaptă transcrierea și verifică textul inserat. Enter automat este dezactivat implicit.
+4. Textul apare în timp ce vorbești: la fiecare pauză de circa 0,6 s, fraza spusă este transcrisă și inserată. Dacă vorbești continuu, segmentul se încheie la prima respirație după 12 s. La oprire se transcrie restul, iar Enter automat (dezactivat implicit) se apasă o singură dată, la final.
 
-Panoul poate fi mutat prin tragere din orice zonă, inclusiv de pe butoane și pictograme. Un click simplu păstrează acțiunea butonului. Meniul **⌄** afișează microfonul, modelul, limba și diagnosticul complet; rotița deschide setările. Click pe pictograma din tray arată sau ascunde panoul; dictarea din tray se pornește explicit din meniu.
+Panoul poate fi mutat prin tragere din orice zonă, inclusiv de pe butoane și pictograme. Un click simplu păstrează acțiunea butonului. Meniul **⌄** afișează microfonul, modelul, limba și diagnosticul complet; rotița deschide setările, iar **×** închide aplicația (cere confirmare doar în timpul unei dictări). Click pe pictograma din tray arată sau ascunde panoul; dictarea din tray se pornește explicit din meniu.
 
-În terminale (consola Windows, Windows Terminal, ConEmu, mintty), inclusiv în sesiunile Claude Code CLI, textul este tastat direct prin Unicode: `Ctrl+V` nu lipește într-o aplicație CLI în mod raw din consola clasică. Fiecare dictare merge în fereastra activă la pornirea ei, deci poți folosi oricâte sesiuni. Rămâi în acea fereastră până apare textul; dacă focusul nu poate fi readus, transcrierea este oferită pentru recuperare.
+În terminale (consola Windows, Windows Terminal, ConEmu, mintty), inclusiv în sesiunile Claude Code CLI, textul este tastat direct prin Unicode: `Ctrl+V` nu lipește într-o aplicație CLI în mod raw din consola clasică. Fiecare dictare merge în fereastra activă la pornirea ei, deci poți folosi oricâte sesiuni. Dacă treci în altă fereastră în timpul dictării, frazele așteaptă și nu îți fură focusul; ele ajung în fereastra inițială când revii sau când oprești dictarea. Dacă focusul nu poate fi readus, textul încă neinserat este oferit pentru recuperare.
 
 În celelalte aplicații, textul folosește o lipire protejată când clipboardul poate fi restaurat. Dacă ai copiat o captură de ecran sau fișiere, introducerea Unicode păstrează clipboardul intact. Suportul depinde de aplicația țintă; ferestrele cu privilegii mai mari pot bloca introducerea. Erorile oferă transcrierea pentru recuperare manuală.
 
 Panoul devine violet deschis când dictarea nu merge într-o fereastră Claude (Claude Code în terminal sau aplicația Claude). Textul este trimis și acolo, dar o lipire într-o fereastră fără câmp de text se pierde fără nicio eroare, așa că verifică destinația în meniul **⌄**, pe rândul **Trimit în**. Ultimele 10 transcrieri rămân în același meniu până închizi aplicația; un click deschide textul, cu buton de copiere. Ele stau doar în memorie, nu pe disc.
 
-Ieși normal din meniul tray pentru eliberarea resurselor. `Stop-Voice2Text.bat` este o oprire forțată pentru instanțele din acest folder.
+Ieși normal cu **×** sau din meniul tray pentru eliberarea resurselor. `Stop-Voice2Text.bat` este o oprire forțată pentru instanțele din acest folder.
+
+## Segmentare în timp real
+
+În timpul înregistrării, `live_transcription.py` verifică la fiecare 0,2 s audio-ul netranscris, cu detectorul de voce Silero din `faster-whisper`. Un segment se încheie astfel:
+
+| Situație | Unde se taie |
+| --- | --- |
+| Pauză de cel puțin 0,6 s după vorbire | La 0,2 s după ultimul sunet, ca finalul frazei să nu fie tăiat |
+| Segment de peste 12 s fără pauză lungă | La mijlocul ultimei pauze de cel puțin 0,15 s (o respirație) |
+| Segment de 28 s fără nicio pauză | Exact la 28 s |
+| Oprirea dictării | Tot ce a rămas |
+
+Sunetele sub 0,25 s (click, tuse) nu contează ca vorbire, pentru că Whisper tinde să le transforme în text inventat. Segmentele se procesează pe rând, pe un singur fir: audio-ul captat între timp așteaptă, deci un model mai lent produce segmente mai mari, nu pierde text. Dacă o transcriere eșuează în timpul dictării, restul audio-ului se reia întreg la oprire.
+
+Pe RX 6800 XT cu `medium`, textul apare la circa 1,1–1,5 s după pauză. Fiecare segment se transcrie fără contextul celor anterioare, așa că o pauză în mijlocul frazei poate produce punct sau literă mare.
 
 ## Totul în folderul proiectului
 
@@ -94,7 +109,7 @@ python -m unittest discover -s tests -v
 python tests/native_clipboard_check.py
 ```
 
-Testele izolează microfonul, descărcările și trimiterea tastelor. Verificarea nativă folosește un clipboard privat, separat de desktopul utilizatorului. Testele includ pornirea fără consolă și fără înregistrare, schimbarea modelelor, protecția clipboardului, rutarea inserării în terminale și interacțiunile panoului.
+Testele izolează microfonul, descărcările și trimiterea tastelor. Verificarea nativă folosește un clipboard privat, separat de desktopul utilizatorului. Testele includ pornirea fără consolă și fără înregistrare, schimbarea modelelor, segmentarea la pauze, protecția clipboardului, rutarea inserării în terminale și interacțiunile panoului.
 
 Detalii istorice despre corecții: [AUDIT_REPORT.md](AUDIT_REPORT.md). Ghid pentru contribuții: [AGENTS.md](AGENTS.md).
 

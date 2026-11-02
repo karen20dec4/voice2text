@@ -46,7 +46,7 @@ def create_ui_assets(output_dir):
     directory.mkdir(parents=True, exist_ok=True)
     scale = 4
     ink = (232, 235, 241, 255)
-    for name in ("mic", "chevron", "settings", "grip"):
+    for name in ("mic", "chevron", "settings", "close", "grip"):
         image = Image.new("RGBA", (32 * scale, 32 * scale), (0, 0, 0, 0))
         draw = ImageDraw.Draw(image)
         def box(values):
@@ -62,6 +62,9 @@ def create_ui_assets(output_dir):
             line([(11, 29), (21, 29)])
         elif name == "chevron":
             line([(8, 12), (16, 20), (24, 12)], width=2.4)
+        elif name == "close":
+            line([(9, 9), (23, 23)], width=2.4)
+            line([(23, 9), (9, 23)], width=2.4)
         elif name == "settings":
             points = []
             for index in range(32):

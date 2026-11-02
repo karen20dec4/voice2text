@@ -231,6 +231,42 @@ class InjectorTests(unittest.TestCase):
         self.user32.keybd_event.assert_not_called()
         self.assertEqual(self.clipboard.data, {13: "original"})
 
+    def test_live_insertion_waits_while_the_user_works_in_another_window(self):
+        self.foreground.return_value = 999
+        with patch("injector.win32process.GetWindowThreadProcessId", return_value=(0, os.getpid() + 1)):
+            self.assertFalse(self.injector.can_insert_now(123))
+
+    def test_live_insertion_proceeds_in_the_target_window(self):
+        self.foreground.return_value = 123
+        self.assertTrue(self.injector.can_insert_now(123))
+
+    def test_click_on_our_own_panel_does_not_hold_live_text(self):
+        self.foreground.return_value = 999
+        with patch("injector.win32process.GetWindowThreadProcessId", return_value=(0, os.getpid())):
+            self.assertTrue(self.injector.can_insert_now(123))
+
+    def test_live_insertion_waits_for_held_modifiers(self):
+        self.foreground.return_value = 123
+        self.user32.GetAsyncKeyState.return_value = 0x8000
+        self.assertFalse(self.injector.can_insert_now(123))
+
+    def test_unknown_foreground_window_holds_live_text(self):
+        self.foreground.return_value = 0
+        with patch("injector.win32process.GetWindowThreadProcessId", side_effect=OSError("invalid")):
+            self.assertFalse(self.injector.can_insert_now(123))
+
+    def test_enter_alone_closes_a_dictation_already_inserted(self):
+        self.foreground.return_value = 123
+        self.injector.restore_and_inject("", auto_enter=True, target_hwnd=123)
+        self.assertEqual([call.args[0] for call in self.user32.keybd_event.call_args_list], [0x0D, 0x0D])
+        self.assertEqual(self.clipboard.data, {13: "original"})
+        self.user32.SendInput.assert_not_called()
+
+    def test_empty_text_without_enter_never_touches_the_window(self):
+        self.injector.restore_and_inject("", target_hwnd=123)
+        self.user32.SetForegroundWindow.assert_not_called()
+        self.user32.keybd_event.assert_not_called()
+
     def test_stop_waits_for_active_injection_cleanup(self):
         finished = threading.Event()
         self.injector._injection_lock.acquire()
