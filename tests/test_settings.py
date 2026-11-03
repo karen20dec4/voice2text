@@ -32,3 +32,23 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(form.config["hotkey"], "f8")
         form.on_save_callback.assert_not_called()
         form.destroy.assert_not_called()
+
+
+class ComboBoxClickTests(unittest.TestCase):
+    def test_click_on_the_text_opens_the_list(self):
+        import customtkinter as ctk
+        root = ctk.CTk()
+        root.withdraw()
+        try:
+            combo = settings_window.open_on_any_click(
+                ctk.CTkComboBox(root, values=["CPU", "GPU"], state="readonly"))
+            combo.pack()
+            # Invisible, but mapped: Tk delivers generated clicks only to mapped widgets.
+            root.attributes("-alpha", 0)
+            root.deiconify()
+            root.update()
+            with patch.object(combo, "_open_dropdown_menu") as opened:
+                combo._entry.event_generate("<Button-1>", x=5, y=5)
+            opened.assert_called_once()
+        finally:
+            root.destroy()

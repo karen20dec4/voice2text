@@ -4,6 +4,16 @@ from config import save_config
 from audio_recorder import AudioRecorder
 from hotkey import parse_hotkey
 
+def open_on_any_click(combo):
+    """A read-only CTkComboBox opens only from its arrow; let its text area open the list too."""
+    entry = combo._entry
+    entry.configure(cursor="hand2")
+    entry.bind("<Button-1>", lambda event: combo._clicked(event) or "break")
+    entry.bind("<Enter>", combo._on_enter, add="+")
+    entry.bind("<Leave>", combo._on_leave, add="+")
+    return combo
+
+
 class SettingsWindow(ctk.CTkToplevel):
     def __init__(self, parent, current_config, on_save_callback=None):
         super().__init__(parent)
@@ -49,7 +59,7 @@ class SettingsWindow(ctk.CTkToplevel):
         model_display = [k for k, v in self.models_map.items() if v == self.config.get("model_size", "small")]
         cur_model_str = model_display[0] if model_display else list(self.models_map.keys())[0]
 
-        self.cb_model = ctk.CTkComboBox(content, values=list(self.models_map.keys()), width=400, state="readonly")
+        self.cb_model = open_on_any_click(ctk.CTkComboBox(content, values=list(self.models_map.keys()), width=400, state="readonly"))
         self.cb_model.set(cur_model_str)
         self.cb_model.pack(fill="x", padx=pad_x, pady=(0, 10))
 
@@ -64,7 +74,7 @@ class SettingsWindow(ctk.CTkToplevel):
         compute_display = [k for k, v in self.compute_map.items() if v == self.config.get("compute_device", "gpu")]
         cur_compute_str = compute_display[0] if compute_display else list(self.compute_map.keys())[0]
 
-        self.cb_compute = ctk.CTkComboBox(content, values=list(self.compute_map.keys()), width=400, state="readonly")
+        self.cb_compute = open_on_any_click(ctk.CTkComboBox(content, values=list(self.compute_map.keys()), width=400, state="readonly"))
         self.cb_compute.set(cur_compute_str)
         self.cb_compute.pack(fill="x", padx=pad_x, pady=(0, 10))
 
@@ -80,7 +90,7 @@ class SettingsWindow(ctk.CTkToplevel):
         lang_display = [k for k, v in self.lang_map.items() if v == self.config.get("language", "ro")]
         cur_lang_str = lang_display[0] if lang_display else "Română (ro)"
 
-        self.cb_lang = ctk.CTkComboBox(content, values=list(self.lang_map.keys()), width=400, state="readonly")
+        self.cb_lang = open_on_any_click(ctk.CTkComboBox(content, values=list(self.lang_map.keys()), width=400, state="readonly"))
         self.cb_lang.set(cur_lang_str)
         self.cb_lang.pack(fill="x", padx=pad_x, pady=(0, 10))
 
@@ -101,7 +111,7 @@ class SettingsWindow(ctk.CTkToplevel):
                     cur_dev_str = name
                     break
 
-        self.cb_mic = ctk.CTkComboBox(content, values=list(self.dev_map.keys()), width=400, state="readonly")
+        self.cb_mic = open_on_any_click(ctk.CTkComboBox(content, values=list(self.dev_map.keys()), width=400, state="readonly"))
         self.cb_mic.set(cur_dev_str)
         self.cb_mic.pack(fill="x", padx=pad_x, pady=(0, 10))
 

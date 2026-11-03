@@ -1,2 +1,2 @@
-# Shown on the floating panel. Raise it with every commit that changes behavior.
-VERSION = "1.6.0"
+# Shown on the floating panel as v<major>.<minor>. Raise it with every commit that changes behavior.
+VERSION = "1.7"

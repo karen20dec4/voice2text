@@ -171,7 +171,7 @@ class Voice2TextApp:
 
         self.btn_dictate = control("Dictează", "mic", 98, self._on_dictate_click, padx=2)
         self.version_label = ctk.CTkLabel(controls, text=f"v{VERSION}", font=ctk.CTkFont(size=10),
-                                          text_color="#7d8792", width=44, height=24)
+                                          text_color="#7d8792", width=28, height=24)
         self.version_label.pack(side="left", padx=(2, 2))
         self.btn_info = control("", "chevron", 24, self._show_info_dropdown)
         self.btn_gear = control("", "settings", 24, self.open_settings)

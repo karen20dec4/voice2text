@@ -353,7 +353,7 @@ class GuiSmokeTests(unittest.TestCase):
             try:
                 app.root.update_idletasks()
                 scale = app.root._get_window_scaling()
-                self.assertLessEqual(app.root.winfo_reqwidth() / scale, 270)
+                self.assertLessEqual(app.root.winfo_reqwidth() / scale, 255)
                 self.assertEqual(app.version_label.cget("text"), f"v{app_module.VERSION}")
                 self.assertLessEqual(app.root.winfo_reqheight() / scale, 75)
                 app._apply_window_shape()
