@@ -96,7 +96,34 @@ class TranscriberTests(unittest.TestCase):
         transcriber.model = engine
         transcriber._loading = False
         self.assertEqual(transcriber.transcribe([0.1], language="en"), "Salut")
-        engine.transcribe.assert_called_once_with([0.1], "en")
+        engine.transcribe.assert_called_once_with([0.1], "en", None)
+
+    def test_romanian_dictation_asks_for_diacritics_on_every_engine(self):
+        with patch("transcriber.threading.Thread"):
+            transcriber = WhisperTranscriber("small")
+        transcriber._loading = False
+        transcriber.model = Mock(spec=VulkanWhisper)
+        transcriber.model.transcribe.return_value = "Salut"
+        transcriber.transcribe([0.1], language="ro")
+        self.assertIn("ș, ț", transcriber.model.transcribe.call_args.args[2])
+        transcriber.model = Mock()
+        transcriber.model.transcribe.return_value = ([], None)
+        transcriber.transcribe([0.1], language="ro")
+        self.assertIn("ș, ț", transcriber.model.transcribe.call_args.kwargs["initial_prompt"])
+        transcriber.transcribe([0.1], language="en")
+        self.assertIsNone(transcriber.model.transcribe.call_args.kwargs["initial_prompt"])
+
+    def test_echoed_prompt_is_not_inserted(self):
+        with patch("transcriber.threading.Thread"):
+            transcriber = WhisperTranscriber("small")
+        transcriber._loading = False
+        transcriber.model = Mock(spec=VulkanWhisper)
+        transcriber.model.transcribe.return_value = "Aceasta este o dictare în limbă română, cu toate diacriticele."
+        self.assertEqual(transcriber.transcribe([0.1], language="ro"), "")
+        transcriber.model = Mock()
+        transcriber.model.transcribe.return_value = (
+            [Mock(text=" Bună ziua, am verificat serverul."), Mock(text=" Aceasta este o dictare în limba română.")], None)
+        self.assertEqual(transcriber.transcribe([0.1], language="ro"), "Bună ziua, am verificat serverul.")
 
     def test_missing_nvidia_libraries_block_cuda_before_inference(self):
         with TemporaryDirectory() as empty, patch("transcriber.ctranslate2.get_cuda_device_count", return_value=1), patch(

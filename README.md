@@ -11,7 +11,7 @@ Utilitar Windows de dictare vocală în română și engleză, cu transcriere lo
 3. Apasă **F9** sau **Dictează**, vorbește, apoi oprește la fel. Butonul este roșu deschis cât timp înregistrează.
 4. Textul apare în timp ce vorbești: la fiecare pauză de circa 0,6 s, fraza spusă este transcrisă și inserată. Dacă vorbești continuu, segmentul se încheie la prima respirație după 12 s. La oprire se transcrie restul, iar Enter automat (dezactivat implicit) se apasă o singură dată, la final.
 
-Panoul poate fi mutat prin tragere din orice zonă, inclusiv de pe butoane și pictograme. Un click simplu păstrează acțiunea butonului. Meniul **⌄** afișează microfonul, modelul, limba și diagnosticul complet; rotița deschide setările, iar **×** închide aplicația (cere confirmare doar în timpul unei dictări). Click pe pictograma din tray arată sau ascunde panoul; dictarea din tray se pornește explicit din meniu.
+Primul rând al panoului arată versiunea aplicației (de exemplu `v1.6.0`), lângă **Dictează**. Panoul poate fi mutat prin tragere din orice zonă, inclusiv de pe butoane și pictograme. Un click simplu păstrează acțiunea butonului. Meniul **⌄** afișează microfonul, modelul, limba și diagnosticul complet; rotița deschide setările, iar **×** închide aplicația (cere confirmare doar în timpul unei dictări). Click pe pictograma din tray arată sau ascunde panoul; dictarea din tray se pornește explicit din meniu.
 
 Shortcutul este înregistrat la Windows prin `RegisterHotKey`, deci funcționează în orice fereastră neelevată și nu se dezactivează singur cât timp aplicația rulează. Dacă altă aplicație folosește deja combinația, setările refuză salvarea cu un mesaj. La pornire, un shortcut ocupat revine la F9; dacă și F9 este ocupat, dictarea pornește doar din panou, iar motivul apare în jurnal.
 
@@ -82,6 +82,8 @@ Pe un iMac 2017 (i7-7700, Radeon Pro 575), pentru o frază de 5,3 s:
 | --- | --- | --- |
 | `small` | 2,4 s | 1,5 s |
 | `medium` | 6,9 s | 3,0 s |
+
+Pe GPU și pe CPU, `medium` greșește la fel de des: diferențele pe 120 de fraze din Common Voice și pe înregistrări proprii au fost de 1–3 cuvinte la sută, în ambele sensuri. Comprimarea `q5_0` nu contează: `q8_0` și modelul complet au dat aceleași rezultate. Pentru română, ambele motoare primesc un text inițial cu diacritice. Fără el, Whisper omitea diacriticele la circa o treime din fraze, la întâmplare; pe două înregistrări de 60 s, rata de cuvinte greșite a scăzut pe GPU de la 29% la 7% și de la 16% la 5%. Rar, pe audio neclar, Whisper repetă acest text; o asemenea frază nu se inserează.
 
 Modelul ocupă circa 870 MB de memorie video cât timp aplicația este deschisă. Pornește aplicația înainte de a încărca modele mari în LM Studio: comportamentul cu memoria video plină nu a fost testat.
 

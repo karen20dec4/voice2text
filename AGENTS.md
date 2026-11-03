@@ -12,6 +12,7 @@ Voice2Text is a Windows desktop dictation utility using CustomTkinter and faster
 - `hotkey.py`: global shortcut through `RegisterHotKey` on its own message thread. Do not return to a low-level keyboard hook: Windows silently removes one that misses `LowLevelHooksTimeout`, which left F9 dead until restart.
 - `injector.py`, `clipboard_guard.py`: target tracking and protected insertion. Terminals, including PuTTY/KiTTY sessions to remote servers, always get direct Unicode input, because a raw-mode CLI on a classic console receives `Ctrl+V` as byte `0x16` and PuTTY forwards it to the server. The optional `strip_diacritics` setting turns only the typed copy into ASCII; history and recovery keep the transcript.
 - `settings_window.py`, `config.py`: settings, validation, and portable paths.
+- `version.py`: `VERSION`, shown on the floating panel. Raise it in every commit that changes behavior.
 - `assets/`, `icon.svg`, `icon_generator.py`: editable artwork and generated icons.
 - `build_portable.py`: creates the root executable and its `_internal/` directory.
 

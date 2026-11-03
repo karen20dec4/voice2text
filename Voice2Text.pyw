@@ -25,6 +25,7 @@ from injector import WindowInjector, strip_diacritics
 from hotkey import GlobalHotkey
 from live_transcription import LiveTranscription
 from settings_window import SettingsWindow
+from version import VERSION
 
 SHOW_WINDOW_EVENT = "Local\\Voice2Text.Show"
 DEFAULT_WINDOW_POSITION = (120, 120)
@@ -169,6 +170,9 @@ class Voice2TextApp:
             return button
 
         self.btn_dictate = control("Dictează", "mic", 98, self._on_dictate_click, padx=2)
+        self.version_label = ctk.CTkLabel(controls, text=f"v{VERSION}", font=ctk.CTkFont(size=10),
+                                          text_color="#7d8792", width=44, height=24)
+        self.version_label.pack(side="left", padx=(2, 2))
         self.btn_info = control("", "chevron", 24, self._show_info_dropdown)
         self.btn_gear = control("", "settings", 24, self.open_settings)
         self.btn_close = control("", "close", 24, self._on_close_click)

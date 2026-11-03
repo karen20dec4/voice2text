@@ -16,6 +16,7 @@ class FakeLibrary:
     def __init__(self, text=b" Salut, lume!"):
         self.text = ctypes.create_string_buffer(text)
         self.calls = []
+        self.prompts = []
         self.freed = 0
         self.unloaded = 0
 
@@ -25,8 +26,9 @@ class FakeLibrary:
     def v2t_unload(self, context):
         self.unloaded += 1
 
-    def v2t_transcribe(self, context, samples, count, language, threads):
+    def v2t_transcribe(self, context, samples, count, language, threads, prompt):
         self.calls.append((count, language))
+        self.prompts.append(prompt)
         return ctypes.addressof(self.text)
 
     def v2t_free_text(self, text):
@@ -51,6 +53,13 @@ class VulkanWhisperTests(unittest.TestCase):
             self.assertEqual(engine.transcribe([0.1, 0.2], "ro"), "Salut, lume!")
         self.assertEqual(library.calls[-1], (4, b"ro"))
         self.assertEqual(library.freed, 2)
+
+    def test_prompt_reaches_the_gpu_as_utf8(self):
+        library = FakeLibrary()
+        engine = self.engine(library)
+        with patch("gpu_engine._speech_only", return_value=np.zeros(4, dtype=np.float32)):
+            engine.transcribe([0.1], "ro", "Dictare cu diacritice: ă, ș, ț.")
+        self.assertEqual(library.prompts, [None, "Dictare cu diacritice: ă, ș, ț.".encode("utf-8")])
 
     def test_silence_never_reaches_the_gpu(self):
         library = FakeLibrary()

@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <vector>
 
 #include "ggml-backend.h"
 #include "whisper.h"
@@ -62,13 +63,26 @@ V2T_API void v2t_unload(whisper_context * context) {
 }
 
 // Returns UTF-8 text to release with v2t_free_text, or null on failure.
+// prompt (UTF-8, may be null) precedes every 30 s window; earlier output never does.
 V2T_API char * v2t_transcribe(whisper_context * context, const float * samples, int count,
-                              const char * language, int threads) {
+                              const char * language, int threads, const char * prompt) {
     try {
         whisper_full_params params = whisper_full_default_params(WHISPER_SAMPLING_BEAM_SEARCH);
         params.n_threads = threads;
         params.n_max_text_ctx = 0;
         params.no_context = true;
+        std::vector<whisper_token> prompt_tokens(512);
+        if (prompt != nullptr && prompt[0] != '\0') {
+            int n = whisper_tokenize(context, prompt, prompt_tokens.data(), (int) prompt_tokens.size());
+            if (n > 0) {
+                prompt_tokens.resize(n);
+                params.prompt_tokens = prompt_tokens.data();
+                params.prompt_n_tokens = n;
+                params.carry_initial_prompt = true;
+                // Room for the prompt plus its marker only, so decoded text is never carried over.
+                params.n_max_text_ctx = n + 1;
+            }
+        }
         params.print_progress = false;
         params.print_realtime = false;
         params.print_special = false;

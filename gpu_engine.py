@@ -40,7 +40,7 @@ def _load_library():
     library.v2t_unload.argtypes = [ctypes.c_void_p]
     library.v2t_unload.restype = None
     library.v2t_transcribe.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_float), ctypes.c_int,
-                                       ctypes.c_char_p, ctypes.c_int]
+                                       ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p]
     library.v2t_transcribe.restype = ctypes.c_void_p
     library.v2t_free_text.argtypes = [ctypes.c_void_p]
     library.v2t_free_text.restype = None
@@ -97,11 +97,12 @@ class VulkanWhisper:
         if self._context:
             self._library.v2t_unload(self._context)
 
-    def _run(self, audio, language):
+    def _run(self, audio, language, prompt=None):
         samples = audio.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
         with self._lock:
             result = self._library.v2t_transcribe(self._context, samples, len(audio),
-                                                  language.encode("ascii"), DECODER_THREADS)
+                                                  language.encode("ascii"), DECODER_THREADS,
+                                                  prompt.encode("utf-8") if prompt else None)
         if not result:
             raise RuntimeError("Transcriere Vulkan eșuată")
         try:
@@ -109,8 +110,8 @@ class VulkanWhisper:
         finally:
             self._library.v2t_free_text(result)
 
-    def transcribe(self, audio, language):
+    def transcribe(self, audio, language, prompt=None):
         speech = _speech_only(np.asarray(audio, dtype=np.float32))
         if speech is None:
             return ""
-        return self._run(speech, language)
+        return self._run(speech, language, prompt)
