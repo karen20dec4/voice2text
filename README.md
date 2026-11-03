@@ -52,7 +52,7 @@ Pe RX 6800 XT cu `medium`, textul apare la circa 1,1–1,5 s după pauză. Fieca
 | `config.json` | Setările personale, lângă executabil/surse |
 | `logs/voice2text.log` | Jurnal rotativ cu metadate și erori |
 
-Setările listează doar microfoanele care acceptă captura la 16 kHz. Panoul se deschide la fiecare lansare, chiar dacă a fost ascuns anterior; o poziție salvată pe un monitor deconectat revine într-o zonă vizibilă.
+Setările listează doar microfoanele care acceptă captura la 16 kHz; listele se deschid cu un click oriunde pe rând. Lista de microfoane se citește la pornire, deci un microfon conectat ulterior apare după repornirea aplicației. **[Implicit din Windows]** folosește intrarea implicită din sistem, care poate fi și un cablu virtual (de exemplu VB-Audio), nu un microfon; alege microfonul direct din listă dacă nu ești sigur. Microfonul contează: pe același text citit, două microfoane au dat 7% și 5% cuvinte greșite. Panoul se deschide la fiecare lansare, chiar dacă a fost ascuns anterior; o poziție salvată pe un monitor deconectat revine într-o zonă vizibilă.
 
 Sursele și executabilul folosesc același `models/`, calculat relativ la locația aplicației, fără o cale fixă spre un anumit disc. Prima utilizare a unui model necesită internet. Modelele deja descărcate pot fi folosite offline. Înregistrările și transcrierile nu sunt salvate intenționat în jurnal.
 
@@ -84,6 +84,8 @@ Pe un iMac 2017 (i7-7700, Radeon Pro 575), pentru o frază de 5,3 s:
 | `medium` | 6,9 s | 3,0 s |
 
 Pe GPU și pe CPU, `medium` greșește la fel de des: diferențele pe 120 de fraze din Common Voice și pe înregistrări proprii au fost de 1–3 cuvinte la sută, în ambele sensuri. Comprimarea `q5_0` nu contează: `q8_0` și modelul complet au dat aceleași rezultate. Pentru română, ambele motoare primesc un text inițial cu diacritice. Fără el, Whisper omitea diacriticele la circa o treime din fraze, la întâmplare; pe două înregistrări de 60 s, rata de cuvinte greșite a scăzut pe GPU de la 29% la 7% și de la 16% la 5%. Rar, pe audio neclar, Whisper repetă acest text; o asemenea frază nu se inserează.
+
+Pentru a compara motoarele, rulează-le pe rând, nu simultan: un test cu GPU-ul și toate firele CPU încărcate deodată a oprit de două ori PC-ul de test (RX 6800 XT cu undervolt automat din Adrenalin), fără ecran albastru și fără jurnal de eroare. Aplicația nu folosește niciodată ambele motoare în același timp.
 
 Modelul ocupă circa 870 MB de memorie video cât timp aplicația este deschisă. Pornește aplicația înainte de a încărca modele mari în LM Studio: comportamentul cu memoria video plină nu a fost testat.
 

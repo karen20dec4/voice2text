@@ -5,9 +5,9 @@
 Voice2Text is a Windows desktop dictation utility using CustomTkinter and faster-whisper. Source modules live at the repository root:
 
 - `Voice2Text.pyw`: application lifecycle, floating controls, tray menu, and UI dispatch.
-- `audio_recorder.py`, `transcriber.py`: capture and transcription (CUDA, then Vulkan, then CPU).
+- `audio_recorder.py`, `transcriber.py`: capture and transcription (CUDA, then Vulkan, then CPU). Romanian dictation passes `PROMPTS["ro"]`, written with diacritics, to every engine; without it Whisper drops diacritics in about a third of the phrases. Output that only repeats the prompt is discarded. Judge accuracy changes on real recordings with reference text, never on impressions.
 - `live_transcription.py`: cuts a running dictation at pauses, then transcribes and inserts each segment on its own thread.
-- `gpu_engine.py`, `native/`, `build_gpu_engine.py`: Vulkan transcription through a small DLL over whisper.cpp.
+- `gpu_engine.py`, `native/`, `build_gpu_engine.py`: Vulkan transcription through a small DLL over whisper.cpp. Keep the `argtypes` in `gpu_engine.py` in step with the exports in `native/voice2text_whisper.cpp`, and rebuild the DLL after changing either. Never benchmark the GPU and all CPU threads at once: on the RX 6800 XT development machine it cut power twice.
 - `audio_meter.py`, `ui_controls.py`: compact audio display and image buttons.
 - `hotkey.py`: global shortcut through `RegisterHotKey` on its own message thread. Do not return to a low-level keyboard hook: Windows silently removes one that misses `LowLevelHooksTimeout`, which left F9 dead until restart.
 - `injector.py`, `clipboard_guard.py`: target tracking and protected insertion. Terminals, including PuTTY/KiTTY sessions to remote servers, always get direct Unicode input, because a raw-mode CLI on a classic console receives `Ctrl+V` as byte `0x16` and PuTTY forwards it to the server. The optional `strip_diacritics` setting turns only the typed copy into ASCII; history and recovery keep the transcript.
@@ -38,8 +38,8 @@ Use four-space indentation, UTF-8, `snake_case` functions/modules, `PascalCase` 
 
 ## Testing Guidelines
 
-Use standard-library `unittest`, `test_*.py` files, and `test_<behavior>` methods. No coverage percentage is enforced. Add focused regressions for bugs and races. Mock microphone capture, network downloads, OS key injection, and interactive clipboard access. Hotkey tests register only unusual combinations (`ctrl+alt+shift+f23`/`f24`) and simulate presses by posting `WM_HOTKEY`. Native clipboard checks must remain isolated from the user's desktop.
+Use standard-library `unittest`, `test_*.py` files, and `test_<behavior>` methods. No coverage percentage is enforced. Add focused regressions for bugs and races. Mock microphone capture, network downloads, OS key injection, and interactive clipboard access. Hotkey tests register only unusual combinations (`ctrl+alt+shift+f23`/`f24`) and simulate presses by posting `WM_HOTKEY`. Tk only delivers generated clicks to mapped widgets, so GUI tests show their window with `-alpha 0` instead of leaving it withdrawn. Native clipboard checks must remain isolated from the user's desktop.
 
 ## Commit & Pull Request Guidelines
 
-The repository starts with an initial import; use concise imperative subjects describing the resulting behavior. PRs should explain the trigger, change, validation commands, and limitations. Link issues and include screenshots for UI changes. Preserve the Apache 2.0 license. Never commit models, recordings, transcriptions, personal configuration, credentials, logs, or generated binaries.
+Work directly on `main`, without branches; commit and push there. Use concise imperative subjects describing the resulting behavior, and raise `VERSION` when behavior changes. PRs should explain the trigger, change, validation commands, and limitations. Link issues and include screenshots for UI changes. Preserve the Apache 2.0 license. Never commit models, recordings, transcriptions, personal configuration, credentials, logs, or generated binaries.
